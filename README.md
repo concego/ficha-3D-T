@@ -18,6 +18,6 @@ Nas configurações do repositório, abra **Pages**, escolha **Deploy from a bra
 
 ## Regras
 
-As rolagens seguem as fórmulas indicadas na interface. O resumo de pontos é uma estimativa editável: soma características e vantagens e subtrai os pontos concedidos por desvantagens. O custo e os efeitos das opções podem depender da mesa; confirme-os com o material de referência usado no jogo. PV e PM máximos usam Resistência × 5.
+As rolagens seguem as fórmulas indicadas na interface. O resumo de pontos é uma estimativa editável: soma características e vantagens e subtrai os pontos concedidos por desvantagens. O custo e os efeitos das opções podem depender da mesa; confirme-os com o material de referência usado no jogo. PV e PM máximos usam Resistência final (base + bônus passivo) × 5.
 
 Esta é uma ferramenta de fã, sem vínculo oficial com os titulares de 3D&T.
