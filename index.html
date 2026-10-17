@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#121212">
+  <meta name="description" content="Ficha de personagem acessível para 3D&T Alpha, com rolagens, recursos e vários personagens salvos no navegador.">
+  <title>Ficha acessível 3D&T Alpha</title>
+  <link rel="stylesheet" href="style.css">
+  <script src="app.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#conteudo">Pular para a ficha</a>
+  <div id="announcer" class="sr-only" aria-live="polite" aria-atomic="true"></div>
+  <header class="site-header">
+    <h1>Ficha 3D&T Alpha</h1>
+    <p>Ficha digital acessível: registre personagens, acompanhe recursos e faça rolagens.</p>
+    <section aria-labelledby="characters-heading" class="toolbar">
+      <h2 id="characters-heading">Personagens</h2>
+      <div class="toolbar-row">
+        <label for="character-select">Personagem ativo</label>
+        <select id="character-select"></select>
+        <button id="new-character" type="button">Novo personagem</button>
+        <button id="delete-character" type="button" class="danger">Excluir personagem</button>
+      </div>
+    </section>
+    <section aria-labelledby="tools-heading" class="toolbar">
+      <h2 id="tools-heading">Ferramentas da ficha</h2>
+      <div class="toolbar-row">
+        <button id="expand-all" type="button">Expandir seções</button>
+        <button id="collapse-all" type="button">Recolher seções</button>
+        <button id="toggle-sound" type="button" aria-pressed="false">Som: desligado</button>
+        <button id="copy-summary" type="button">Copiar resumo</button>
+        <button id="export-json" type="button">Exportar JSON</button>
+        <button id="import-button" type="button">Importar JSON</button>
+        <input id="import-file" type="file" accept=".json,application/json" class="sr-only" tabindex="-1" aria-label="Arquivo JSON para importar">
+      </div>
+    </section>
+  </header>
+
+  <main id="conteudo">
+    <section class="accordion" aria-labelledby="combat-title">
+      <h2><button class="accordion-button" id="combat-title" type="button" aria-expanded="true" aria-controls="combat-panel">1. Combate e rolagens</button></h2>
+      <div class="accordion-panel" id="combat-panel">
+        <div class="columns">
+          <section class="card" aria-labelledby="pv-title">
+            <h3 id="pv-title">Pontos de Vida (PV): <span id="pv-readout">5 de 5</span></h3>
+            <p id="pv-condition" class="badge" aria-live="polite">Saudável</p>
+            <div class="button-row" aria-label="Ajustes rápidos de PV">
+              <button type="button" data-resource="pv" data-delta="-5">Perder 5 PV</button><button type="button" data-resource="pv" data-delta="-1">Perder 1 PV</button>
+              <button type="button" data-resource="pv" data-delta="1">Recuperar 1 PV</button><button type="button" data-resource="pv" data-delta="5">Recuperar 5 PV</button>
+              <button type="button" data-restore="pv">Restaurar PV</button>
+            </div>
+            <div class="inline-form"><label for="pv-amount">Quantidade</label><input id="pv-amount" type="number" min="1" step="1" value="1"><button type="button" data-custom-resource="pv" data-sign="-1">Aplicar dano</button><button type="button" data-custom-resource="pv" data-sign="1">Aplicar cura</button></div>
+          </section>
+          <section class="card" aria-labelledby="pm-title">
+            <h3 id="pm-title">Pontos de Magia (PM): <span id="pm-readout">5 de 5</span></h3>
+            <p id="pm-condition" class="badge">Disponíveis para gastar</p>
+            <div class="button-row" aria-label="Ajustes rápidos de PM">
+              <button type="button" data-resource="pm" data-delta="-5">Gastar 5 PM</button><button type="button" data-resource="pm" data-delta="-1">Gastar 1 PM</button>
+              <button type="button" data-resource="pm" data-delta="1">Recuperar 1 PM</button><button type="button" data-resource="pm" data-delta="5">Recuperar 5 PM</button>
+              <button type="button" data-restore="pm">Restaurar PM</button>
+            </div>
+            <div class="inline-form"><label for="pm-amount">Quantidade</label><input id="pm-amount" type="number" min="1" step="1" value="1"><button type="button" data-custom-resource="pm" data-sign="-1">Gastar PM</button><button type="button" data-custom-resource="pm" data-sign="1">Recuperar PM</button></div>
+          </section>
+        </div>
+        <section class="card" aria-labelledby="effects-title">
+          <h3 id="effects-title">Efeitos e manobras ativáveis</h3>
+          <p>Marque os efeitos que se aplicam à próxima rolagem de ataque ou defesa. O custo total em PM é descontado ao rolar.</p>
+          <div id="effects-list" class="stack"></div>
+          <form id="effect-form" class="inline-form">
+            <label for="effect-name">Novo efeito</label><input id="effect-name" required maxlength="80" placeholder="Nome">
+            <label for="effect-cost">Custo em PM</label><input id="effect-cost" type="number" min="0" step="1" value="0">
+            <label for="effect-mod">Modificador</label><input id="effect-mod" type="number" step="1" value="0">
+            <button type="submit">Adicionar efeito</button>
+          </form>
+          <div class="inline-form"><label for="temp-mod">Modificador temporário para a próxima rolagem</label><input id="temp-mod" type="number" step="1" value="0"></div>
+        </section>
+        <section class="card" aria-labelledby="roll-title">
+          <h3 id="roll-title">Ações e rolagens</h3>
+          <div class="button-row">
+            <button type="button" data-roll="attackF">Ataque corpo a corpo (1d6 + F + H)</button>
+            <button type="button" data-roll="attackP">Ataque à distância (1d6 + PdF + H)</button>
+            <button type="button" data-roll="defense">Força de Defesa (1d6 + A + H)</button>
+            <button type="button" data-roll="initiative">Iniciativa (1d6 + H)</button>
+          </div>
+          <h4>Testes de característica (1d6 ≤ característica)</h4>
+          <div class="button-row">
+            <button type="button" data-test="F">Testar Força</button><button type="button" data-test="H">Testar Habilidade</button>
+            <button type="button" data-test="R">Testar Resistência</button><button type="button" data-test="A">Testar Armadura</button><button type="button" data-test="PdF">Testar PdF</button>
+          </div>
+          <h4>Dados livres</h4>
+          <div class="button-row"><button type="button" data-dice="1">Rolar 1d6</button><button type="button" data-dice="2">Rolar 2d6</button><button type="button" data-dice="3">Rolar 3d6</button></div>
+          <p id="last-roll" class="roll-result" tabindex="-1">Nenhuma rolagem nesta sessão.</p>
+        </section>
+        <section class="card" aria-labelledby="history-title">
+          <div class="split-heading"><h3 id="history-title">Histórico de rolagens (últimas 10)</h3><button id="clear-rolls" type="button">Limpar histórico</button></div>
+          <ol id="roll-history" class="roll-history"></ol>
+        </section>
+        <div class="field"><label for="quick-notes">Cola da mesa (rascunho rápido)</label><textarea id="quick-notes" rows="4" placeholder="Anotações urgentes, iniciativas, nomes de NPCs..."></textarea></div>
+      </div>
+    </section>
+
+    <section class="accordion" aria-labelledby="identity-title">
+      <h2><button class="accordion-button" id="identity-title" type="button" aria-expanded="false" aria-controls="identity-panel">2. Identidade e pontuação</button></h2>
+      <div class="accordion-panel" id="identity-panel" hidden>
+        <p class="card" id="points-summary" aria-live="polite">Pontos gastos: 0; orçamento: 5.</p>
+        <div class="columns">
+          <div class="field"><label for="char-name">Nome do personagem</label><input id="char-name" maxlength="100"></div>
+          <div class="field"><label for="player-name">Nome do jogador</label><input id="player-name" maxlength="100"></div>
+          <div class="field"><label for="char-concept">Conceito / arquétipo</label><input id="char-concept" maxlength="160" placeholder="Ex.: guerreiro ciborgue"></div>
+          <div class="field"><label for="char-scale">Escala de poder</label><select id="char-scale"><option value="Ningen">Ningen (Normal — x1)</option><option value="Sugoi">Sugoi (Heróico — x10)</option><option value="Kiodai">Kiodai (Colossal — x100)</option><option value="Kami">Kami (Divino — x1000)</option></select></div>
+          <div class="field"><label for="points-total">Orçamento base de pontos</label><input id="points-total" type="number" min="0" step="1"></div>
+          <div class="field"><label for="xp-total">Pontos de experiência (PEs)</label><input id="xp-total" type="number" min="0" step="1"></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="accordion" aria-labelledby="stats-title">
+      <h2><button class="accordion-button" id="stats-title" type="button" aria-expanded="false" aria-controls="stats-panel">3. Características (F, H, R, A, PdF)</button></h2>
+      <div class="accordion-panel" id="stats-panel" hidden>
+        <p>Cada ponto-base de característica entra no total de pontos gastos. Os bônus temporários ou passivos não são somados automaticamente ao custo: registre-os na descrição ou nos efeitos.</p>
+        <div id="stats-container" class="stack"></div>
+      </div>
+    </section>
+
+    <section class="accordion" aria-labelledby="abilities-title">
+      <h2><button class="accordion-button" id="abilities-title" type="button" aria-expanded="false" aria-controls="abilities-panel">4. Vantagens, desvantagens e perícias</button></h2>
+      <div class="accordion-panel" id="abilities-panel" hidden>
+        <p>Os valores de custo e benefício são editáveis para acompanhar a regra ou decisão usada na sua mesa.</p>
+        <div class="columns">
+          <section class="card"><h3>Vantagens</h3><div id="advantages-list" class="stack"></div><form id="advantage-form" class="entry-form"><label for="advantage-name">Nome</label><input id="advantage-name" required maxlength="100"><label for="advantage-cost">Custo em pontos</label><input id="advantage-cost" type="number" min="0" step="1" value="1"><label for="advantage-desc">Descrição</label><textarea id="advantage-desc" rows="2"></textarea><button type="submit">Adicionar vantagem</button></form></section>
+          <section class="card"><h3>Desvantagens</h3><div id="disadvantages-list" class="stack"></div><form id="disadvantage-form" class="entry-form"><label for="disadvantage-name">Nome</label><input id="disadvantage-name" required maxlength="100"><label for="disadvantage-value">Pontos concedidos</label><input id="disadvantage-value" type="number" min="0" step="1" value="1"><label for="disadvantage-desc">Descrição</label><textarea id="disadvantage-desc" rows="2"></textarea><button type="submit">Adicionar desvantagem</button></form></section>
+        </div>
+        <section class="card"><h3>Perícias e especializações</h3><div id="skills-list" class="stack"></div><form id="skill-form" class="inline-form"><label for="skill-name">Perícia / especialização</label><input id="skill-name" required maxlength="120"><label for="skill-desc">Observações</label><input id="skill-desc" maxlength="200"><button type="submit">Adicionar perícia</button></form></section>
+      </div>
+    </section>
+
+    <section class="accordion" aria-labelledby="gear-title">
+      <h2><button class="accordion-button" id="gear-title" type="button" aria-expanded="false" aria-controls="gear-panel">5. Equipamentos e ataques</button></h2>
+      <div class="accordion-panel" id="gear-panel" hidden>
+        <div class="columns"><section class="card"><h3>Equipamentos</h3><div id="equipment-list" class="stack"></div><form id="equipment-form" class="inline-form"><label for="equipment-name">Equipamento</label><input id="equipment-name" required maxlength="120"><label for="equipment-desc">Descrição</label><input id="equipment-desc" maxlength="200"><button type="submit">Adicionar equipamento</button></form></section>
+        <section class="card"><h3>Tipos de dano e ataques</h3><div id="attacks-list" class="stack"></div><form id="attack-form" class="inline-form"><label for="attack-name">Nome do ataque</label><input id="attack-name" required maxlength="120"><label for="attack-type">Característica / tipo</label><input id="attack-type" maxlength="100" placeholder="F — corte, PdF — fogo..."><label for="attack-desc">Descrição</label><input id="attack-desc" maxlength="200"><button type="submit">Adicionar ataque</button></form></section></div>
+      </div>
+    </section>
+
+    <section class="accordion" aria-labelledby="story-title">
+      <h2><button class="accordion-button" id="story-title" type="button" aria-expanded="false" aria-controls="story-panel">6. História e anotações</button></h2>
+      <div class="accordion-panel" id="story-panel" hidden>
+        <div class="columns"><div class="field"><label for="appearance">Aparência</label><textarea id="appearance" rows="4"></textarea></div><div class="field"><label for="personality">Personalidade e objetivos</label><textarea id="personality" rows="4"></textarea></div><div class="field"><label for="backstory">História</label><textarea id="backstory" rows="6"></textarea></div><div class="field"><label for="general-notes">Anotações gerais</label><textarea id="general-notes" rows="6"></textarea></div></div>
+      </div>
+    </section>
+    <footer><p>Ferramenta de fã, sem vínculo oficial com os titulares de 3D&T. Confirme as regras e custos com o material da sua mesa.</p></footer>
+  </main>
+  <dialog id="confirm-dialog" aria-labelledby="dialog-title"><form method="dialog"><h2 id="dialog-title">Confirmar exclusão</h2><p id="dialog-message"></p><div class="button-row"><button value="cancel">Cancelar</button><button id="confirm-action" value="confirm" class="danger">Excluir</button></div></form></dialog>
+</body>
+</html>
