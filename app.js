@@ -381,8 +381,8 @@ const STORAGE_KEY = 'ficha_3det_alpha_v2';
           lbl.style.display = 'inline';
           lbl.style.marginLeft = '0.35rem';
           const modSign = t.mod >= 0 ? `+${t.mod}` : t.mod;
-          const targetLabel = t.target === 'COMBAT' ? 'Ataque/defesa' : t.target;
-          lbl.textContent = `${t.name} (${t.target !== 'none' ? targetLabel + modSign : ''} | ${t.pmCost} PM)`;
+          const targetText = targetLabel(t.target);
+          lbl.textContent = `${t.name} (${t.target !== 'none' ? targetText + ' ' + modSign : ''} | ${t.pmCost} PM)`;
           wrapper.appendChild(cb);
           wrapper.appendChild(lbl);
           activeContainer.appendChild(wrapper);
@@ -643,6 +643,10 @@ const STORAGE_KEY = 'ficha_3det_alpha_v2';
       }
     }
 
+    function targetLabel(target) {
+      return ({ FA: 'Força de Ataque', FD: 'Força de Defesa', COMBAT: 'Ataque e Defesa', PV_MAX: 'PV máximo', PM_MAX: 'PM máximo', INIT: 'Iniciativa' })[target] || target;
+    }
+
     function renderTraitsList(char) {
       const ul = document.getElementById('traits-list');
       ul.innerHTML = '';
@@ -657,7 +661,7 @@ const STORAGE_KEY = 'ficha_3det_alpha_v2';
         row.className = 'flex-row';
         row.style.justifyContent = 'space-between';
         const effectBadge = t.mode !== 'none' && t.target !== 'none'
-          ? ` | Efeito (${t.mode === 'passive' ? 'Passivo' : 'Ativável'}): ${t.target} ${t.mod >= 0 ? '+' + t.mod : t.mod}${t.pmCost ? ' (' + t.pmCost + ' PM)' : ''}`
+          ? ` | Efeito (${t.mode === 'passive' ? 'Passivo' : 'Ativável'}): ${targetLabel(t.target)} ${t.mod >= 0 ? '+' + t.mod : t.mod}${t.pmCost ? ' (' + t.pmCost + ' PM)' : ''}`
           : '';
         const strong = document.createElement('strong');
         strong.textContent = `${t.name} (${t.category} | ${t.cost} pts${effectBadge})`;
