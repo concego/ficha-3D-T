@@ -4,7 +4,7 @@ Ficha de fã para 3D&T Alpha, publicada como página estática no GitHub Pages.
 
 ## Baixar e usar
 
-Acesse a [release v1.0.1](https://github.com/concego/ficha-3D-T/releases/tag/v1.0.1) e baixe **Source code (zip)**. Extraia o arquivo e abra `index.html` em um navegador atualizado. Não é necessário instalar servidor nem dependências.
+Acesse a [release v1.0.2](https://github.com/concego/ficha-3D-T/releases/tag/v1.0.2) e baixe **Source code (zip)**. Extraia o arquivo e abra `index.html` em um navegador atualizado. Não é necessário instalar servidor nem dependências.
 
 A versão online está no [GitHub Pages](https://concego.github.io/ficha-3D-T/).
 
@@ -24,7 +24,7 @@ A versão online está no [GitHub Pages](https://concego.github.io/ficha-3D-T/).
 
 ## Dados e importação
 
-As fichas são salvas localmente no navegador. A versão 1.0.1 usa uma nova chave de armazenamento local; fichas salvas por versões anteriores não são carregadas automaticamente. Isso evita misturar os dados antigos com o formato atual. Para trazer uma ficha anterior, exporte ou use um backup JSON e importe-o pela opção de importação da ficha. A importação JSON ainda normaliza modos antigos de efeito quando necessário.
+As fichas são salvas localmente no navegador. A versão 1.0.2 usa uma nova chave de armazenamento local; fichas salvas por versões anteriores não são carregadas automaticamente. Isso evita misturar os dados antigos com o formato atual. Para trazer uma ficha anterior, exporte ou use um backup JSON e importe-o pela opção de importação da ficha. A importação JSON ainda normaliza modos antigos de efeito quando necessário.
 
 Faça backups JSON periódicos se quiser guardar ou transferir suas fichas. Limpar os dados do site no navegador apaga as fichas guardadas naquele navegador.
 
