@@ -921,6 +921,14 @@ const STORAGE_KEY = 'ficha_3det_alpha_v3';
       reader.readAsText(file);
     }
 
+    function registerOfflineSupport() {
+      if (!('serviceWorker' in navigator)) return;
+      const isSecureContext = location.protocol === 'https:' || ['localhost', '127.0.0.1', '[::1]'].includes(location.hostname);
+      if (!isSecureContext) return;
+      navigator.serviceWorker.register('./service-worker.js', { scope: './' })
+        .catch(() => announce('A ficha abriu, mas o modo offline não pôde ser ativado neste navegador.', false));
+    }
+
     // --- INICIALIZAÇÃO ---
     window.addEventListener('DOMContentLoaded', () => {
       loadState();
@@ -933,4 +941,5 @@ const STORAGE_KEY = 'ficha_3det_alpha_v3';
       soundBtn.textContent = `Som: ${appState.soundEnabled ? 'Ligado' : 'Desligado'}`;
 
       renderCharacter();
+      registerOfflineSupport();
     });
