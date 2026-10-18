@@ -1,322 +1,931 @@
-(() => {
-  'use strict';
-  const STORE = 'ficha-3dt-alpha-v1';
-  const statDefs = [
-    ['F', 'Força'], ['H', 'Habilidade'], ['R', 'Resistência'], ['A', 'Armadura'], ['PdF', 'Poder de Fogo']
-  ];
-  const $ = (selector, root = document) => root.querySelector(selector);
-  const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
-  const uid = () => `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 9)}`;
-  const blankCharacter = (name = 'Personagem 1') => ({
-    id: uid(), name, player: '', concept: '', scale: 'Ningen', pointsTotal: 5, xp: 0,
-    stats: Object.fromEntries(statDefs.map(([key]) => [key, { value: key === 'R' ? 1 : 0, bonus: 0, description: '' }])),
-    pv: 5, pm: 5, effects: [], advantages: [], disadvantages: [], skills: [], equipment: [], attacks: [],
-    quickNotes: '', appearance: '', personality: '', backstory: '', generalNotes: '', rollHistory: []
-  });
-  let data = loadData();
-  let soundEnabled = false;
-  let pendingDelete = false;
-  const announce = (message) => {
-    const live = $('#announcer');
-    live.textContent = '';
-    window.setTimeout(() => { live.textContent = message; }, 30);
-  };
-  function normalizeCharacter(input, index = 0) {
-    const base = blankCharacter(`Personagem ${index + 1}`);
-    if (!input || typeof input !== 'object' || Array.isArray(input)) return base;
-    const safeText = (value, max = 5000) => typeof value === 'string' ? value.slice(0, max) : '';
-    const safeInt = (value, fallback = 0, min = 0, max = 100000) => {
-      const n = Number(value);
-      return Number.isFinite(n) ? Math.min(max, Math.max(min, Math.trunc(n))) : fallback;
+const STORAGE_KEY = 'ficha_3det_alpha_v2';
+    let appState = {
+      soundEnabled: true,
+      activeCharId: null,
+      openAccordions: ['sec-combate'],
+      characters: []
     };
-    base.id = safeText(input.id, 100) || base.id;
-    for (const key of ['name', 'player', 'concept', 'quickNotes', 'appearance', 'personality', 'backstory', 'generalNotes']) base[key] = safeText(input[key], key.includes('Notes') || key === 'backstory' ? 12000 : 300);
-    base.scale = ['Ningen', 'Sugoi', 'Kiodai', 'Kami'].includes(input.scale) ? input.scale : 'Ningen';
-    base.pointsTotal = safeInt(input.pointsTotal, 5);
-    base.xp = safeInt(input.xp);
-    for (const [key] of statDefs) {
-      const item = input.stats && input.stats[key];
-      base.stats[key] = { value: safeInt(item && item.value, key === 'R' ? 1 : 0, 0, 100), bonus: safeInt(item && item.bonus, 0, -100, 100), description: safeText(item && item.description, 500) };
+    let bioEditMode = false;
+
+    function createDefaultCharacter(name = 'Novo Herói') {
+      return {
+        id: 'char_' + Date.now() + '_' + Math.floor(Math.random() * 1000),
+        name: name,
+        player: '',
+        concept: 'Aventureiro',
+        scale: 'Ningen (Normal)',
+        pointsTotal: 5,
+        xp: 0,
+        stats: { F: 1, H: 1, R: 1, A: 1, PdF: 0 },
+        statDescs: { F: 'Esmagamento', H: '', R: '', A: '', PdF: '' },
+        pvCurrent: 5,
+        pmCurrent: 5,
+        traits: [
+          {
+            id: 't_default_1',
+            name: 'Ataque Especial',
+            category: 'Vantagem',
+            cost: 1,
+            mode: 'toggle',
+            target: 'FA',
+            mod: 2,
+            pmCost: 2,
+            active: false,
+            desc: 'Gasta 2 PM para ganhar FA+2 em um ataque.'
+          }
+        ],
+        powers: [],
+        money: '',
+        inventory: '',
+        appearance: '',
+        personality: '',
+        history: '',
+        quickNotes: '',
+        diary: [],
+        rollLog: []
+      };
     }
-    const maxResource = Math.max(0, base.stats.R.value + base.stats.R.bonus) * 5;
-    base.pv = safeInt(input.pv, maxResource, 0, 100000);
-    base.pm = safeInt(input.pm, maxResource, 0, 100000);
-    const cleanList = (list, fields) => Array.isArray(list) ? list.slice(0, 200).map((item) => {
-      const clean = { id: safeText(item && item.id, 100) || uid() };
-      for (const [field, max] of fields) clean[field] = typeof max === 'number' ? safeInt(item && item[field], 0, 0, 100000) : safeText(item && item[field], max);
-      if ('selected' in (item || {})) clean.selected = Boolean(item.selected);
-      if ('modifier' in (item || {})) clean.modifier = safeInt(item.modifier, 0, -1000, 1000);
-      return clean;
-    }) : [];
-    base.effects = cleanList(input.effects, [['name', 100], ['cost', 0], ['modifier', 0]]);
-    base.advantages = cleanList(input.advantages, [['name', 100], ['cost', 0], ['description', 1000]]);
-    base.disadvantages = cleanList(input.disadvantages, [['name', 100], ['value', 0], ['description', 1000]]);
-    base.skills = cleanList(input.skills, [['name', 120], ['description', 500]]);
-    base.equipment = cleanList(input.equipment, [['name', 120], ['description', 500]]);
-    base.attacks = cleanList(input.attacks, [['name', 120], ['type', 120], ['description', 500]]);
-    base.rollHistory = Array.isArray(input.rollHistory) ? input.rollHistory.slice(0, 10).map((x) => safeText(x, 500)) : [];
-    return base;
-  }
-  function loadData() {
-    try {
-      const saved = JSON.parse(localStorage.getItem(STORE) || 'null');
-      if (saved && Array.isArray(saved.characters) && saved.characters.length) {
-        const characters = saved.characters.slice(0, 100).map(normalizeCharacter);
-        return { characters, activeId: characters.some((c) => c.id === saved.activeId) ? saved.activeId : characters[0].id };
+
+    function cleanText(value, max = 5000) {
+      return typeof value === 'string' ? value.slice(0, max) : '';
+    }
+    function cleanNumber(value, fallback = 0, min = -100000, max = 100000) {
+      const number = Number(value);
+      return Number.isFinite(number) ? Math.max(min, Math.min(max, Math.trunc(number))) : fallback;
+    }
+    function migrateRepoCharacter(old, index) {
+      const c = createDefaultCharacter(cleanText(old.name, 100) || `Personagem ${index + 1}`);
+      c.traits = [];
+      c.id = cleanText(old.id, 100) || c.id;
+      c.player = cleanText(old.player, 100); c.concept = cleanText(old.concept, 160);
+      const scales = { Ningen: 'Ningen (Normal)', Sugoi: 'Sugoi (x10)', Kiodai: 'Kiodai (x100)', Kami: 'Kami (x1000)' };
+      c.scale = scales[old.scale] || cleanText(old.scale, 80) || 'Ningen (Normal)';
+      c.pointsTotal = cleanNumber(old.pointsTotal, 5, 0); c.xp = cleanNumber(old.xp, 0, 0);
+      const statKeys = ['F', 'H', 'R', 'A', 'PdF'];
+      for (const key of statKeys) {
+        const raw = old.stats && old.stats[key];
+        const base = raw && typeof raw === 'object' ? raw.value : raw;
+        c.stats[key] = Math.max(0, cleanNumber(base, key === 'R' ? 1 : 0, 0, 100));
+        c.statDescs[key] = cleanText((raw && typeof raw === 'object' && raw.description) || (old.statDescs && old.statDescs[key]), 500);
+        const bonus = raw && typeof raw === 'object' ? cleanNumber(raw.bonus, 0, -100, 100) : 0;
+        if (bonus) c.traits.push({ id: `migrated-bonus-${key}-${c.id}`, name: `Bônus passivo migrado de ${key}`, category: 'Bônus migrado', cost: 0, mode: 'passive', target: key, mod: bonus, pmCost: 0, active: false, desc: 'Bônus preservado da versão anterior da ficha.' });
       }
-    } catch (_) { /* inicia com uma ficha nova se os dados locais estiverem inválidos */ }
-    const first = blankCharacter();
-    return { characters: [first], activeId: first.id };
-  }
-  const current = () => data.characters.find((c) => c.id === data.activeId) || data.characters[0];
-  function save(message) {
-    try {
-      localStorage.setItem(STORE, JSON.stringify(data));
-      if (message) announce(message);
-    } catch (_) {
-      announce('Não foi possível guardar no navegador. Exporte um JSON para não perder as alterações.');
+      for (const item of (Array.isArray(old.advantages) ? old.advantages : []).filter(x => x && typeof x === 'object')) c.traits.push({ id: cleanText(item.id, 100) || `mig-a-${Date.now()}-${Math.random()}`, name: cleanText(item.name, 120), category: 'Vantagem', cost: cleanNumber(item.cost, 0, 0), mode: 'none', target: 'none', mod: 0, pmCost: 0, active: false, desc: cleanText(item.description, 2000) });
+      for (const item of (Array.isArray(old.disadvantages) ? old.disadvantages : []).filter(x => x && typeof x === 'object')) c.traits.push({ id: cleanText(item.id, 100) || `mig-d-${Date.now()}-${Math.random()}`, name: cleanText(item.name, 120), category: 'Desvantagem', cost: -cleanNumber(item.value, 0, 0), mode: 'none', target: 'none', mod: 0, pmCost: 0, active: false, desc: cleanText(item.description, 2000) });
+      for (const effect of (Array.isArray(old.effects) ? old.effects : []).filter(x => x && typeof x === 'object')) c.traits.push({ id: cleanText(effect.id, 100) || `mig-e-${Date.now()}-${Math.random()}`, name: cleanText(effect.name, 120), category: 'Efeito migrado', cost: 0, mode: 'toggle', target: 'COMBAT', mod: cleanNumber(effect.modifier, 0, -1000, 1000), pmCost: cleanNumber(effect.cost, 0, 0), active: Boolean(effect.selected), oneShot: true, desc: 'Migrado como modificador genérico de ataque/defesa. Ele se desativa após uma rolagem, como na versão anterior.' });
+      c.powers = (Array.isArray(old.skills) ? old.skills : []).filter(item => item && typeof item === 'object').map((item, i) => ({ id: cleanText(item.id, 100) || `mig-s-${i}-${c.id}`, name: cleanText(item.name, 120), type: 'Perícia / Especialização', points: 0, pmCost: 0, desc: cleanText(item.description, 2000) }));
+      c.pointsTotal = cleanNumber(old.pointsTotal, 5, 0); c.xp = cleanNumber(old.xp, 0, 0);
+      c.pvCurrent = cleanNumber(old.pv, c.stats.R * 5, 0); c.pmCurrent = cleanNumber(old.pm, c.stats.R * 5, 0);
+      c.quickNotes = cleanText(old.quickNotes, 12000);
+      c.appearance = cleanText(old.appearance, 12000); c.personality = cleanText(old.personality, 12000);
+      const historyParts = [cleanText(old.backstory, 12000)];
+      if (old.generalNotes) historyParts.push(`Anotações gerais migradas:\n${cleanText(old.generalNotes, 8000)}`);
+      c.history = historyParts.filter(Boolean).join('\n\n');
+      const inventory = [];
+      for (const item of (Array.isArray(old.equipment) ? old.equipment : []).filter(x => x && typeof x === 'object')) inventory.push(`${cleanText(item.name, 120)}${item.description ? ` — ${cleanText(item.description, 500)}` : ''}`);
+      for (const item of (Array.isArray(old.attacks) ? old.attacks : []).filter(x => x && typeof x === 'object')) inventory.push(`Ataque: ${cleanText(item.name, 120)}${item.type ? ` (${cleanText(item.type, 120)})` : ''}${item.description ? ` — ${cleanText(item.description, 500)}` : ''}`);
+      c.inventory = [cleanText(old.inventory, 12000), inventory.length ? `Itens e ataques migrados:\n- ${inventory.join('\n- ')}` : ''].filter(Boolean).join('\n\n');
+      c.money = cleanText(old.money, 200);
+      c.diary = Array.isArray(old.diary) ? old.diary.filter(d => d && typeof d === 'object').slice(0, 500).map((d, i) => ({ id: cleanText(d.id, 100) || `d-${i}-${c.id}`, title: cleanText(d.title, 200), text: cleanText(d.text, 12000) })) : [];
+      c.rollLog = (Array.isArray(old.rollHistory) ? old.rollHistory : Array.isArray(old.rollLog) ? old.rollLog : []).slice(0, 10).map(x => cleanText(x, 500));
+      return c;
     }
-  }
-  function escText(el, text) { el.textContent = text == null ? '' : String(text); }
-  function renderCharacterSelect() {
-    const select = $('#character-select');
-    select.replaceChildren();
-    data.characters.forEach((character, i) => {
-      const option = document.createElement('option');
-      option.value = character.id;
-      option.textContent = character.name.trim() || `Personagem ${i + 1}`;
-      option.selected = character.id === data.activeId;
-      select.append(option);
-    });
-  }
-  function renderFields() {
-    const c = current();
-    $('#char-name').value = c.name;
-    $('#player-name').value = c.player;
-    $('#char-concept').value = c.concept;
-    $('#char-scale').value = c.scale;
-    $('#points-total').value = c.pointsTotal;
-    $('#xp-total').value = c.xp;
-    $('#quick-notes').value = c.quickNotes;
-    $('#appearance').value = c.appearance;
-    $('#personality').value = c.personality;
-    $('#backstory').value = c.backstory;
-    $('#general-notes').value = c.generalNotes;
-    renderCharacterSelect();
-    renderStats();
-    renderItems('effects'); renderItems('advantages'); renderItems('disadvantages'); renderItems('skills'); renderItems('equipment'); renderItems('attacks');
-    renderResources(); renderRollHistory(); updatePoints();
-  }
-  function renderStats() {
-    const host = $('#stats-container'); host.replaceChildren();
-    for (const [key, label] of statDefs) {
-      const stat = current().stats[key];
-      const card = document.createElement('div'); card.className = 'card stat-card';
-      const valueWrap = document.createElement('div'); valueWrap.className = 'stat-value';
-      const valueLabel = document.createElement('label'); valueLabel.htmlFor = `stat-${key}`; valueLabel.textContent = `${label} (${key}) — base`;
-      const input = document.createElement('input'); input.type = 'number'; input.min = '0'; input.step = '1'; input.max = '100'; input.id = `stat-${key}`; input.value = stat.value; input.dataset.stat = key;
-      const total = document.createElement('p'); total.className = 'badge'; total.id = `total-${key}`; total.textContent = `Total final: ${stat.value + stat.bonus}`;
-      valueWrap.append(valueLabel, input, total);
-      const bonusWrap = document.createElement('div'); bonusWrap.className = 'stat-value';
-      const bonusLabel = document.createElement('label'); bonusLabel.htmlFor = `bonus-${key}`; bonusLabel.textContent = `Bônus passivo de ${key}`;
-      const bonus = document.createElement('input'); bonus.type = 'number'; bonus.min = '-100'; bonus.max = '100'; bonus.step = '1'; bonus.id = `bonus-${key}`; bonus.value = stat.bonus; bonus.dataset.statBonus = key;
-      bonusWrap.append(bonusLabel, bonus);
-      const descWrap = document.createElement('div'); descWrap.className = 'stat-desc';
-      const descLabel = document.createElement('label'); descLabel.htmlFor = `desc-${key}`; descLabel.textContent = `${label} — bônus, estilo ou descrição`;
-      const desc = document.createElement('input'); desc.type = 'text'; desc.id = `desc-${key}`; desc.maxLength = 500; desc.value = stat.description; desc.dataset.statDescription = key;
-      descWrap.append(descLabel, desc);
-      card.append(valueWrap, bonusWrap, descWrap); host.append(card);
+    function normalizeCharacter(input, index) {
+      if (!input || typeof input !== 'object' || Array.isArray(input)) return createDefaultCharacter(`Personagem ${index + 1}`);
+      const legacyRepoShape = input.advantages || input.disadvantages || input.effects || (input.stats && typeof input.stats.F === 'object');
+      if (legacyRepoShape) return migrateRepoCharacter(input, index);
+      const c = createDefaultCharacter(cleanText(input.name, 100) || `Personagem ${index + 1}`);
+      c.id = cleanText(input.id, 100) || c.id;
+      for (const key of ['name','player','concept','scale','money','inventory','appearance','personality','history','quickNotes']) if (key in input) c[key] = cleanText(input[key], key === 'history' || key === 'inventory' || key === 'quickNotes' ? 12000 : 500);
+      c.pointsTotal = cleanNumber(input.pointsTotal, 5, 0); c.xp = cleanNumber(input.xp, 0, 0);
+      const statKeys = ['F','H','R','A','PdF'];
+      for (const key of statKeys) {
+        c.stats[key] = Math.max(0, cleanNumber(input.stats && input.stats[key], key === 'R' ? 1 : 0, 0, 100));
+        c.statDescs[key] = cleanText(input.statDescs && input.statDescs[key], 500);
+      }
+      c.pvCurrent = cleanNumber(input.pvCurrent, c.stats.R * 5, 0);
+      c.pmCurrent = cleanNumber(input.pmCurrent, c.stats.R * 5, 0);
+      const validModes = ['none','passive','toggle'];
+      const validTargets = ['none','FA','FD','COMBAT','F','H','R','A','PdF','PV_MAX','PM_MAX','INIT'];
+      c.traits = Array.isArray(input.traits) ? input.traits.slice(0,500).map((t,i) => ({
+        id: cleanText(t && t.id,100) || `trait-${i}-${c.id}`, name: cleanText(t && t.name,120),
+        category: cleanText(t && t.category,80) || 'Vantagem', cost: cleanNumber(t && t.cost,0),
+        mode: validModes.includes(t && t.mode) ? t.mode : 'none', target: validTargets.includes(t && t.target) ? t.target : 'none',
+        mod: cleanNumber(t && t.mod,0,-10000,10000), pmCost: cleanNumber(t && t.pmCost,0,0), active: Boolean(t && t.active), oneShot: Boolean(t && t.oneShot), desc: cleanText(t && t.desc,5000)
+      })) : [];
+      c.powers = Array.isArray(input.powers) ? input.powers.slice(0,500).map((x,i) => ({ id:cleanText(x && x.id,100)||`power-${i}-${c.id}`, name:cleanText(x && x.name,120), type:cleanText(x && x.type,100)||'Perícia / Especialização', points:cleanNumber(x && x.points,0), pmCost:cleanNumber(x && x.pmCost,0,0), desc:cleanText(x && x.desc,5000) })) : [];
+      c.diary = Array.isArray(input.diary) ? input.diary.filter(d => d && typeof d === 'object').slice(0,500).map((d,i) => ({ id:cleanText(d && d.id,100)||`diary-${i}-${c.id}`, title:cleanText(d && d.title,200), text:cleanText(d && d.text,12000) })) : [];
+      c.rollLog = Array.isArray(input.rollLog) ? input.rollLog.slice(0,10).map(x => cleanText(x,500)) : [];
+      return c;
     }
-  }
-  function renderResources() {
-    const c = current();
-    const maximum = Math.max(0, c.stats.R.value + c.stats.R.bonus) * 5;
-    c.pv = Math.min(c.pv, maximum); c.pm = Math.min(c.pm, maximum);
-    $('#pv-readout').textContent = `${c.pv} de ${maximum}`;
-    $('#pm-readout').textContent = `${c.pm} de ${maximum}`;
-    const ratio = maximum ? c.pv / maximum : 0;
-    $('#pv-condition').textContent = maximum === 0 ? 'Sem PV (R = 0)' : ratio > .5 ? 'Saudável' : ratio > .25 ? 'Ferido' : ratio > 0 ? 'À beira da inconsciência' : 'Inconsciente';
-  }
-  function updatePoints() {
-    const c = current();
-    const statsCost = statDefs.reduce((sum, [key]) => sum + c.stats[key].value, 0);
-    const advantageCost = c.advantages.reduce((sum, item) => sum + item.cost, 0);
-    const disadvantageCredit = c.disadvantages.reduce((sum, item) => sum + item.value, 0);
-    const spent = statsCost + advantageCost - disadvantageCredit;
-    $('#points-summary').textContent = `Pontos gastos líquidos: ${spent} (características ${statsCost} + vantagens ${advantageCost} − desvantagens ${disadvantageCredit}); orçamento base: ${c.pointsTotal}. PEs registrados separadamente: ${c.xp}.`;
-  }
-  function makeItemRow(kind, item, index) {
-    const row = document.createElement('div'); row.className = 'item-row';
-    if (kind === 'effects') {
-      const label = document.createElement('label');
-      const check = document.createElement('input'); check.type = 'checkbox'; check.checked = Boolean(item.selected); check.dataset.effect = item.id;
-      const copy = document.createElement('span'); copy.className = 'item-copy';
-      const strong = document.createElement('strong'); strong.textContent = item.name;
-      const small = document.createElement('small'); small.textContent = `Custo: ${item.cost} PM; modificador: ${item.modifier >= 0 ? '+' : ''}${item.modifier}`;
-      copy.append(strong, small); label.append(check, copy); row.append(label);
-    } else {
-      const copy = document.createElement('div'); copy.className = 'item-copy';
-      const strong = document.createElement('strong'); strong.textContent = item.name || `Item ${index + 1}`;
-      const detail = kind === 'advantages' ? `${item.cost} ponto(s)` : kind === 'disadvantages' ? `${item.value} ponto(s) concedido(s)` : (item.type ? `${item.type} — ` : '') + (item.description || '');
-      const small = document.createElement('small'); small.textContent = detail;
-      copy.append(strong, small); row.append(copy);
+    function normalizeState(parsed) {
+      if (!parsed || !Array.isArray(parsed.characters) || !parsed.characters.length || parsed.characters.length > 100) return null;
+      const characters = parsed.characters.map((c,i) => normalizeCharacter(c,i));
+      const requestedId = cleanText(parsed.activeCharId || parsed.activeId,100);
+      return {
+        soundEnabled: typeof parsed.soundEnabled === 'boolean' ? parsed.soundEnabled : parsed.format === 'ficha-3dt-alpha' ? false : true,
+        activeCharId: characters.some(c => c.id === requestedId) ? requestedId : characters[0].id,
+        openAccordions: Array.isArray(parsed.openAccordions) ? parsed.openAccordions.filter(id => typeof id === 'string' && /^sec-/.test(id)).slice(0,20) : ['sec-combate'],
+        characters
+      };
     }
-    const remove = document.createElement('button'); remove.type = 'button'; remove.className = 'danger'; remove.textContent = 'Remover'; remove.dataset.removeKind = kind; remove.dataset.removeId = item.id;
-    remove.setAttribute('aria-label', `Remover ${item.name || `item ${index + 1}`} de ${kind === 'effects' ? 'efeitos' : kind}`);
-    row.append(remove); return row;
-  }
-  const listTargets = { effects: '#effects-list', advantages: '#advantages-list', disadvantages: '#disadvantages-list', skills: '#skills-list', equipment: '#equipment-list', attacks: '#attacks-list' };
-  function renderItems(kind) {
-    const host = $(listTargets[kind]); host.replaceChildren();
-    current()[kind].forEach((item, index) => host.append(makeItemRow(kind, item, index)));
-    if (!host.childElementCount) { const p = document.createElement('p'); p.textContent = kind === 'effects' ? 'Nenhum efeito cadastrado.' : 'Nenhum item cadastrado.'; host.append(p); }
-  }
-  function renderRollHistory() {
-    const list = $('#roll-history'); list.replaceChildren();
-    current().rollHistory.slice(0, 10).forEach((entry) => { const li = document.createElement('li'); li.textContent = entry; list.append(li); });
-    if (!list.childElementCount) { const li = document.createElement('li'); li.textContent = 'Nenhuma rolagem registrada.'; list.append(li); }
-  }
-  function addRoll(text) {
-    const c = current(); const entry = `${new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })} — ${text}`;
-    c.rollHistory.unshift(entry); c.rollHistory = c.rollHistory.slice(0, 10);
-    $('#last-roll').textContent = text; renderRollHistory(); save(); announce(text); playSound();
-  }
-  function rollDie() { return Math.floor(Math.random() * 6) + 1; }
-  function playSound() {
-    if (!soundEnabled) return;
-    try { const Audio = window.AudioContext || window.webkitAudioContext; if (!Audio) return; const ctx = new Audio(); const osc = ctx.createOscillator(); const gain = ctx.createGain(); osc.frequency.value = 520; gain.gain.setValueAtTime(.08, ctx.currentTime); gain.gain.exponentialRampToValueAtTime(.001, ctx.currentTime + .12); osc.connect(gain); gain.connect(ctx.destination); osc.start(); osc.stop(ctx.currentTime + .12); osc.onended = () => ctx.close(); } catch (_) { /* áudio é opcional */ }
-  }
-  function getModifier() { const input = $('#temp-mod'); const n = Number(input.value); return Number.isFinite(n) ? Math.trunc(n) : 0; }
-  function doCombatRoll(action) {
-    const c = current(); const active = action === 'initiative' ? [] : c.effects.filter((effect) => effect.selected);
-    const cost = active.reduce((sum, effect) => sum + effect.cost, 0);
-    if (cost > c.pm) { announce(`PM insuficientes: são necessários ${cost} PM, mas há ${c.pm}.`); $('#last-roll').textContent = `Rolagem cancelada: custo de ${cost} PM; disponíveis ${c.pm}.`; return; }
-    const die = rollDie(); const mod = getModifier() + active.reduce((sum, effect) => sum + effect.modifier, 0);
-    const stats = c.stats; const statValue = (key) => stats[key].value + stats[key].bonus; let formula, value;
-    if (action === 'attackF') { formula = `F ${statValue('F')} + H ${statValue('H')} + 1d6${mod ? ` + modificadores ${mod}` : ''}`; value = statValue('F') + statValue('H') + die + mod; }
-    else if (action === 'attackP') { formula = `PdF ${statValue('PdF')} + H ${statValue('H')} + 1d6${mod ? ` + modificadores ${mod}` : ''}`; value = statValue('PdF') + statValue('H') + die + mod; }
-    else if (action === 'defense') { formula = `A ${statValue('A')} + H ${statValue('H')} + 1d6${mod ? ` + modificadores ${mod}` : ''}`; value = statValue('A') + statValue('H') + die + mod; }
-    else { formula = `H ${statValue('H')} + 1d6${mod ? ` + modificadores ${mod}` : ''}`; value = statValue('H') + die + mod; }
-    c.pm -= cost; if (action !== 'initiative') c.effects.forEach((effect) => { if (effect.selected) effect.selected = false; });
-    $('#temp-mod').value = '0'; renderItems('effects'); renderResources();
-    const effectNote = cost ? `; ${cost} PM gastos` : '';
-    addRoll(`${action === 'initiative' ? 'Iniciativa' : action === 'defense' ? 'Força de Defesa' : action === 'attackP' ? 'Ataque à distância' : 'Ataque corpo a corpo'}: ${formula} = ${value} (dado ${die})${effectNote}.`);
-  }
-  function doStatTest(key) {
-    const c = current(); const die = rollDie(); const modifier = getModifier(); const target = c.stats[key].value + c.stats[key].bonus + modifier; const success = die <= target;
-    $('#temp-mod').value = '0';
-    addRoll(`Teste de ${statDefs.find(([id]) => id === key)[1]}: 1d6 = ${die}; característica ${c.stats[key].value + c.stats[key].bonus}${modifier ? `, modificador ${modifier >= 0 ? '+' : ''}${modifier}, alvo ${target}` : ''} — ${success ? 'sucesso' : 'falha'}.`);
-  }
-  function doDice(count) { const dice = Array.from({ length: count }, rollDie); addRoll(`${count}d6: ${dice.join(' + ')} = ${dice.reduce((a, b) => a + b, 0)}.`); }
-  function clampResource(resource, delta) {
-    const c = current(); const max = Math.max(0, c.stats.R.value + c.stats.R.bonus) * 5; const old = c[resource];
-    c[resource] = Math.max(0, Math.min(max, old + delta));
-    renderResources(); save(`${resource.toUpperCase()} atualizado: ${c[resource]} de ${max}.`);
-  }
-  function restoreResource(resource) { current()[resource] = Math.max(0, current().stats.R.value + current().stats.R.bonus) * 5; renderResources(); save(`${resource.toUpperCase()} restaurado.`); }
-  function fieldMap() {
-    return { 'char-name': 'name', 'player-name': 'player', 'char-concept': 'concept', 'char-scale': 'scale', 'points-total': 'pointsTotal', 'xp-total': 'xp', 'quick-notes': 'quickNotes', appearance: 'appearance', personality: 'personality', backstory: 'backstory', 'general-notes': 'generalNotes' };
-  }
-  function bindForms() {
-    for (const [id, key] of Object.entries(fieldMap())) {
-      const el = document.getElementById(id); const event = el.tagName === 'SELECT' ? 'change' : 'input';
-      el.addEventListener(event, () => { const c = current(); c[key] = ['pointsTotal', 'xp'].includes(key) ? Math.max(0, Math.trunc(Number(el.value) || 0)) : el.value; if (key === 'name') renderCharacterSelect(); updatePoints(); save(); });
+    function loadState() {
+      let saved = null;
+      try { saved = localStorage.getItem(STORAGE_KEY); } catch (e) { announce('O navegador não permitiu acessar os dados salvos.', true); }
+      if (!saved) {
+        try { saved = localStorage.getItem('ficha-3dt-alpha-v1'); } catch (e) {}
+      }
+      if (saved) {
+        try {
+          const normalized = normalizeState(JSON.parse(saved));
+          if (normalized) { appState = normalized; saveState(); }
+          else announce('Os dados salvos não foram reconhecidos; uma ficha nova será aberta.', true);
+        } catch (e) { announce('Não foi possível ler os dados salvos; uma ficha nova será aberta.', true); }
+      }
+      if (!Array.isArray(appState.openAccordions)) appState.openAccordions = ['sec-combate'];
+      if (!appState.characters || appState.characters.length === 0) {
+        const first = createDefaultCharacter('Kain');
+        appState.characters = [first]; appState.activeCharId = first.id;
+      }
+      if (!appState.activeCharId || !getActiveChar()) appState.activeCharId = appState.characters[0].id;
     }
-    $('#stats-container').addEventListener('input', (event) => {
-      const el = event.target; const c = current();
-      if (el.dataset.stat) {
-        const key = el.dataset.stat; const oldMax = Math.max(0, c.stats.R.value + c.stats.R.bonus) * 5; const pvWasFull = c.pv === oldMax; const pmWasFull = c.pm === oldMax;
-        c.stats[key].value = Math.max(0, Math.min(100, Math.trunc(Number(el.value) || 0))); el.value = c.stats[key].value;
-        const newMax = Math.max(0, c.stats.R.value + c.stats.R.bonus) * 5; if (key === 'R') { if (pvWasFull) c.pv = newMax; if (pmWasFull) c.pm = newMax; }
-        $(`#total-${key}`).textContent = `Total final: ${c.stats[key].value + c.stats[key].bonus}`; renderResources(); updatePoints(); save();
-      } else if (el.dataset.statBonus) {
-        const key = el.dataset.statBonus; const oldMax = Math.max(0, c.stats.R.value + c.stats.R.bonus) * 5; const pvWasFull = c.pv === oldMax; const pmWasFull = c.pm === oldMax;
-        c.stats[key].bonus = Math.max(-100, Math.min(100, Math.trunc(Number(el.value) || 0))); el.value = c.stats[key].bonus;
-        if (key === 'R') { const newMax = Math.max(0, c.stats.R.value + c.stats.R.bonus) * 5; if (pvWasFull) c.pv = newMax; if (pmWasFull) c.pm = newMax; }
-        $(`#total-${key}`).textContent = `Total final: ${c.stats[key].value + c.stats[key].bonus}`; renderResources(); updatePoints(); save();
-      } else if (el.dataset.statDescription) { c.stats[el.dataset.statDescription].description = el.value; save(); }
+
+    function saveState() {
+      try { localStorage.setItem(STORAGE_KEY, JSON.stringify(appState)); }
+      catch (e) { announce('Não foi possível salvar no navegador. Exporte um JSON para manter um backup.', true); }
+      updateDynamicHeaders();
+    }
+
+    function getActiveChar() {
+      return appState.characters.find(c => c.id === appState.activeCharId);
+    }
+
+    // --- CONTROLE DE GAVETAS (ACORDEÕES) ---
+    function toggleSection(panelId) {
+      const panel = document.getElementById(panelId);
+      const btn = document.querySelector(`button[aria-controls="${panelId}"]`);
+      if (!panel || !btn) return;
+
+      const isCurrentlyOpen = btn.getAttribute('aria-expanded') === 'true';
+      const willOpen = !isCurrentlyOpen;
+
+      btn.setAttribute('aria-expanded', willOpen ? 'true' : 'false');
+      panel.hidden = !willOpen;
+
+      if (willOpen) {
+        if (!appState.openAccordions.includes(panelId)) {
+          appState.openAccordions.push(panelId);
+        }
+      } else {
+        appState.openAccordions = appState.openAccordions.filter(id => id !== panelId);
+      }
+      saveState();
+    }
+
+    function expandAllSections(open) {
+      appState.openAccordions = [];
+      document.querySelectorAll('.accordion-btn').forEach(btn => {
+        const panelId = btn.getAttribute('aria-controls');
+        const panel = document.getElementById(panelId);
+        btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+        if (panel) panel.hidden = !open;
+        if (open) appState.openAccordions.push(panelId);
+      });
+      saveState();
+      announce(open ? 'Todas as seções foram expandidas.' : 'Todas as seções foram recolhidas.');
+    }
+
+    function applySavedAccordions() {
+      document.querySelectorAll('.accordion-btn').forEach(btn => {
+        const panelId = btn.getAttribute('aria-controls');
+        const panel = document.getElementById(panelId);
+        const isOpen = appState.openAccordions.includes(panelId);
+        btn.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
+        if (panel) panel.hidden = !isOpen;
+      });
+    }
+
+    // --- WEB AUDIO API ---
+    let audioCtx = null;
+    function playTone(freq, type = 'sine', duration = 0.12) {
+      if (!appState.soundEnabled) return;
+      try {
+        if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.type = type;
+        osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+        gain.gain.setValueAtTime(0.15, audioCtx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + duration);
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        osc.start();
+        osc.stop(audioCtx.currentTime + duration);
+      } catch (e) {}
+    }
+
+    function soundRoll() { playTone(380, 'triangle', 0.1); setTimeout(() => playTone(520, 'sine', 0.15), 90); }
+    function soundCrit() { playTone(523, 'sine', 0.1); setTimeout(() => playTone(659, 'sine', 0.1), 100); setTimeout(() => playTone(784, 'triangle', 0.25), 200); }
+    function soundFumble() { playTone(220, 'sawtooth', 0.18); setTimeout(() => playTone(150, 'sawtooth', 0.25), 160); }
+
+    function toggleSound() {
+      appState.soundEnabled = !appState.soundEnabled;
+      document.getElementById('btn-import-json').addEventListener('click', () => document.getElementById('input-import-json').click());
+      const soundBtn = document.getElementById('btn-toggle-sound');
+      soundBtn.setAttribute('aria-pressed', String(appState.soundEnabled));
+      soundBtn.textContent = `Som: ${appState.soundEnabled ? 'Ligado' : 'Desligado'}`;
+      saveState();
+      announce(`Efeitos sonoros ${appState.soundEnabled ? 'ligados' : 'desligados'}.`);
+    }
+
+    function announce(msg, assertive = false) {
+      const el = document.getElementById(assertive ? 'live-announcer' : 'polite-announcer');
+      el.textContent = '';
+      setTimeout(() => { el.textContent = msg; }, 30);
+    }
+
+    // --- CÁLCULOS DO 3D&T ALPHA ---
+    function getEffectiveStats(char) {
+      const totals = { F: char.stats.F, H: char.stats.H, R: char.stats.R, A: char.stats.A, PdF: char.stats.PdF, FA: 0, FD: 0, COMBAT: 0, INIT: 0, PV_MAX: 0, PM_MAX: 0 };
+      char.traits.forEach(t => {
+        const shouldApply = (t.mode === 'passive') || (t.mode === 'toggle' && t.active);
+        if (shouldApply && t.target !== 'none' && totals[t.target] !== undefined) {
+          totals[t.target] += Number(t.mod) || 0;
+        }
+      });
+      ['F', 'H', 'R', 'A', 'PdF'].forEach(k => { if (totals[k] < 0) totals[k] = 0; });
+
+      const pvBase = totals.R === 0 ? 1 : totals.R * 5;
+      const pmBase = totals.R === 0 ? 1 : totals.R * 5;
+      totals.maxPV = Math.max(1, pvBase + totals.PV_MAX);
+      totals.maxPM = Math.max(1, pmBase + totals.PM_MAX);
+      return totals;
+    }
+
+    function calculatePoints(char) {
+      const statPoints = (char.stats.F || 0) + (char.stats.H || 0) + (char.stats.R || 0) + (char.stats.A || 0) + (char.stats.PdF || 0);
+      let vants = 0;
+      let desvants = 0;
+      char.traits.forEach(t => {
+        const c = Number(t.cost) || 0;
+        if (c >= 0) vants += c;
+        else desvants += c;
+      });
+      let powerPoints = 0;
+      char.powers.forEach(p => { powerPoints += Number(p.points) || 0; });
+      const spent = statPoints + vants + desvants + powerPoints;
+      return { statPoints, vants, desvants, powerPoints, spent, remaining: char.pointsTotal - spent };
+    }
+
+    function updateDynamicHeaders() {
+      const char = getActiveChar();
+      if (!char) return;
+      const eff = getEffectiveStats(char);
+      const pts = calculatePoints(char);
+
+      document.getElementById('main-title').textContent = `Ficha 3D&T Alpha: ${char.name}`;
+      document.getElementById('hdr-combate').textContent =
+        `1. Combate e Rolagens (PV: ${char.pvCurrent}/${eff.maxPV} | PM: ${char.pmCurrent}/${eff.maxPM})`;
+      document.getElementById('hdr-identidade').textContent =
+        `2. Identidade: ${char.name} (${pts.spent}/${char.pointsTotal} pts | ${char.scale.split(' ')[0]})`;
+      document.getElementById('hdr-stats').textContent =
+        `3. Características (F${eff.F}, H${eff.H}, R${eff.R}, A${eff.A}, PdF${eff.PdF})`;
+      document.getElementById('hdr-traits').textContent =
+        `4. Vantagens e Desvantagens (${char.traits.length} itens | Desvantagens: ${pts.desvants} pts)`;
+      document.getElementById('hdr-powers').textContent =
+        `5. Perícias e Magias (${char.powers.length} cadastradas)`;
+      document.getElementById('hdr-inv').textContent =
+        `6. Inventário e Dinheiro (${char.money ? char.money : 'Sem dinheiro anotado'})`;
+      document.getElementById('hdr-bio').textContent =
+        `7. Aparência, Personalidade e História`;
+      document.getElementById('hdr-diary').textContent =
+        `8. Diário de Sessão (${char.diary.length} anotações)`;
+    }
+
+    // --- ATUALIZAÇÃO DE CAMPOS DIRETOS ---
+    function updateField(prop, val, isNum = false) {
+      const char = getActiveChar();
+      if (!char) return;
+      char[prop] = isNum ? (parseInt(val, 10) || 0) : val;
+      saveState();
+      if (prop === 'name' || prop === 'concept') populateCharSelect();
+      if (isNum) {
+        const pts = calculatePoints(char);
+        document.getElementById('points-summary').textContent =
+          `${pts.spent} pontos gastos de ${char.pointsTotal} (Restam: ${pts.remaining} pts | Características: ${pts.statPoints} | Vantagens: +${pts.vants} | Desvantagens: ${pts.desvants} | Perícias: +${pts.powerPoints})`;
+      }
+      if (prop === 'appearance' || prop === 'personality' || prop === 'history') {
+        document.getElementById('read-appearance').textContent = char.appearance || 'Nenhuma aparência descrita.';
+        document.getElementById('read-personality').textContent = char.personality || 'Nenhuma personalidade descrita.';
+        document.getElementById('read-history').textContent = char.history || 'Nenhuma história escrita.';
+      }
+    }
+
+    function updateStat(statKey, val) {
+      const char = getActiveChar();
+      if (!char) return;
+      char.stats[statKey] = Math.max(0, parseInt(val, 10) || 0);
+      saveState();
+      renderCharacter();
+    }
+
+    function updateStatDesc(statKey, val) {
+      const char = getActiveChar();
+      if (!char) return;
+      char.statDescs[statKey] = val;
+      saveState();
+    }
+
+    function renderCharacter() {
+      const char = getActiveChar();
+      if (!char) return;
+      const eff = getEffectiveStats(char);
+      const pts = calculatePoints(char);
+
+      if (char.pvCurrent > eff.maxPV) char.pvCurrent = eff.maxPV;
+      if (char.pmCurrent > eff.maxPM) char.pmCurrent = eff.maxPM;
+
+      document.getElementById('pv-display').textContent = `${char.pvCurrent} / ${eff.maxPV}`;
+      document.getElementById('pm-display').textContent = `${char.pmCurrent} / ${eff.maxPM}`;
+
+      const pvStatusEl = document.getElementById('pv-status');
+      if (char.pvCurrent <= 0) {
+        pvStatusEl.textContent = 'Derrotado / Inconsciente (0 PV - Faça Teste de Morte!)';
+      } else if (char.pvCurrent <= eff.R) {
+        pvStatusEl.textContent = `Perto da Morte! (PV igual ou menor que R=${eff.R})`;
+      } else {
+        pvStatusEl.textContent = 'Saudável';
+      }
+
+      const activeContainer = document.getElementById('active-effects-list');
+      activeContainer.innerHTML = '';
+      const toggleTraits = char.traits.filter(t => t.mode === 'toggle');
+      if (toggleTraits.length === 0) {
+        activeContainer.innerHTML = '<span>Nenhum efeito ativável cadastrado nas Vantagens.</span>';
+      } else {
+        toggleTraits.forEach(t => {
+          const wrapper = document.createElement('div');
+          wrapper.style.marginRight = '1rem';
+          const cb = document.createElement('input');
+          cb.type = 'checkbox';
+          cb.id = 'toggle_' + t.id;
+          cb.checked = !!t.active;
+          cb.addEventListener('change', () => {
+            t.active = cb.checked;
+            saveState();
+            renderCharacter();
+            announce(`${t.name} ${t.active ? 'ativado' : 'desativado'}`, false);
+          });
+          const lbl = document.createElement('label');
+          lbl.htmlFor = cb.id;
+          lbl.style.display = 'inline';
+          lbl.style.marginLeft = '0.35rem';
+          const modSign = t.mod >= 0 ? `+${t.mod}` : t.mod;
+          const targetLabel = t.target === 'COMBAT' ? 'Ataque/defesa' : t.target;
+          lbl.textContent = `${t.name} (${t.target !== 'none' ? targetLabel + modSign : ''} | ${t.pmCost} PM)`;
+          wrapper.appendChild(cb);
+          wrapper.appendChild(lbl);
+          activeContainer.appendChild(wrapper);
+        });
+      }
+
+      document.getElementById('quick-notes').value = char.quickNotes || '';
+      renderRollLog(char);
+
+      document.getElementById('char-name').value = char.name;
+      document.getElementById('player-name').value = char.player;
+      document.getElementById('char-concept').value = char.concept;
+      document.getElementById('char-scale').value = char.scale;
+      document.getElementById('char-points-total').value = char.pointsTotal;
+      document.getElementById('char-xp').value = char.xp;
+      document.getElementById('points-summary').textContent =
+        `${pts.spent} pontos gastos de ${char.pointsTotal} (Restam: ${pts.remaining} pts | Características: ${pts.statPoints} | Vantagens: +${pts.vants} | Desvantagens: ${pts.desvants} | Perícias: +${pts.powerPoints})`;
+
+      ['F', 'H', 'R', 'A', 'PdF'].forEach(k => {
+        document.getElementById('stat-' + k).value = char.stats[k];
+        document.getElementById('stat-' + k + '-total').textContent = `Total Efetivo: ${eff[k]}`;
+        document.getElementById('desc-' + k).value = char.statDescs[k] || '';
+      });
+
+      renderTraitsList(char);
+      renderPowersList(char);
+
+      document.getElementById('char-money').value = char.money || '';
+      document.getElementById('char-inventory').value = char.inventory || '';
+
+      document.getElementById('char-appearance').value = char.appearance || '';
+      document.getElementById('char-personality').value = char.personality || '';
+      document.getElementById('char-history').value = char.history || '';
+      document.getElementById('read-appearance').textContent = char.appearance || 'Nenhuma aparência descrita.';
+      document.getElementById('read-personality').textContent = char.personality || 'Nenhuma personalidade descrita.';
+      document.getElementById('read-history').textContent = char.history || 'Nenhuma história escrita.';
+
+      renderDiaryList(char);
+      updateDynamicHeaders();
+    }
+
+    // --- RECURSOS DE COMBATE (PV E PM) ---
+    function changeResource(type, delta) {
+      const char = getActiveChar();
+      const eff = getEffectiveStats(char);
+      if (type === 'pv') {
+        char.pvCurrent = Math.max(0, Math.min(eff.maxPV, char.pvCurrent + delta));
+        playTone(delta < 0 ? 240 : 480, 'sine', 0.1);
+        const nearDeath = char.pvCurrent <= eff.R && char.pvCurrent > 0 ? ' Atenção: Perto da Morte!' : '';
+        const zeroAlert = char.pvCurrent === 0 ? ' Zero PVs! Personagem caiu!' : '';
+        announce(`Pontos de Vida: ${char.pvCurrent} de ${eff.maxPV}.${nearDeath}${zeroAlert}`);
+      } else {
+        char.pmCurrent = Math.max(0, Math.min(eff.maxPM, char.pmCurrent + delta));
+        playTone(delta < 0 ? 300 : 540, 'sine', 0.1);
+        announce(`Pontos de Magia: ${char.pmCurrent} de ${eff.maxPM}.`);
+      }
+      saveState();
+      renderCharacter();
+    }
+
+    function restoreResource(type) {
+      const char = getActiveChar();
+      const eff = getEffectiveStats(char);
+      if (type === 'pv') {
+        char.pvCurrent = eff.maxPV;
+        announce(`Pontos de Vida restaurados ao máximo: ${eff.maxPV}`);
+      } else {
+        char.pmCurrent = eff.maxPM;
+        announce(`Pontos de Magia restaurados ao máximo: ${eff.maxPM}`);
+      }
+      playTone(600, 'sine', 0.15);
+      saveState();
+      renderCharacter();
+    }
+
+    function applyCustomResource(type, multiplier) {
+      const inputId = type === 'pv' ? 'pv-custom' : 'pm-custom';
+      const val = parseInt(document.getElementById(inputId).value, 10) || 0;
+      changeResource(type, val * multiplier);
+    }
+
+    // --- ROLADOR DE DADOS ---
+    function addRollToLog(text) {
+      const char = getActiveChar();
+      const time = new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+      char.rollLog.unshift(`[${time}] ${text}`);
+      if (char.rollLog.length > 10) char.rollLog.pop();
+      saveState();
+      renderRollLog(char);
+    }
+
+    function renderRollLog(char) {
+      const ul = document.getElementById('roll-log-list');
+      ul.innerHTML = '';
+      if (!char.rollLog || char.rollLog.length === 0) {
+        ul.innerHTML = '<li>Nenhuma rolagem realizada ainda.</li>';
+        return;
+      }
+      char.rollLog.forEach(entry => {
+        const li = document.createElement('li');
+        li.style.padding = '0.35rem 0';
+        li.style.borderBottom = '1px solid var(--border)';
+        li.textContent = entry;
+        ul.appendChild(li);
+      });
+    }
+
+    function clearRollLog() {
+      const char = getActiveChar();
+      char.rollLog = [];
+      saveState();
+      renderRollLog(char);
+      announce('Histórico de rolagens limpo.');
+    }
+
+    function rollCombat(actionType) {
+      const char = getActiveChar();
+      const eff = getEffectiveStats(char);
+      const tempMod = parseInt(document.getElementById('temp-mod').value, 10) || 0;
+
+      let totalPmCost = 0;
+      const activeNames = [];
+      char.traits.forEach(t => {
+        if (t.mode === 'toggle' && t.active) {
+          totalPmCost += Number(t.pmCost) || 0;
+          activeNames.push(t.name);
+        }
+      });
+
+      if (totalPmCost > 0 && actionType !== 'init') {
+        if (char.pmCurrent < totalPmCost) {
+          playTone(180, 'sawtooth', 0.2);
+          announce(`PM insuficiente para usar ${activeNames.join(', ')}! Custo: ${totalPmCost} PM, você tem ${char.pmCurrent} PM.`);
+          return;
+        }
+        char.pmCurrent -= totalPmCost;
+      }
+
+      const d6 = Math.floor(Math.random() * 6) + 1;
+      const isCrit = (d6 === 6);
+      let total = 0;
+      let msg = '';
+
+      if (actionType === 'fa_cc') {
+        const fVal = isCrit ? eff.F * 2 : eff.F;
+        total = d6 + fVal + eff.H + eff.FA + eff.COMBAT + tempMod;
+        const desc = char.statDescs.F ? ` (${char.statDescs.F})` : '';
+        msg = `${isCrit ? 'CRÍTICO! ' : ''}Ataque Corpo a Corpo${desc}: Total ${total}. (Dado: ${d6} + F:${fVal} + H:${eff.H}${eff.FA ? ' + Bônus FA:' + eff.FA : ''}${eff.COMBAT ? ' + Bônus Combate:' + eff.COMBAT : ''}${tempMod ? ' + Mod:' + tempMod : ''})`;
+      } else if (actionType === 'fa_pdf') {
+        const pdfVal = isCrit ? eff.PdF * 2 : eff.PdF;
+        total = d6 + pdfVal + eff.H + eff.FA + eff.COMBAT + tempMod;
+        const desc = char.statDescs.PdF ? ` (${char.statDescs.PdF})` : '';
+        msg = `${isCrit ? 'CRÍTICO! ' : ''}Ataque à Distância${desc}: Total ${total}. (Dado: ${d6} + PdF:${pdfVal} + H:${eff.H}${eff.FA ? ' + Bônus FA:' + eff.FA : ''}${eff.COMBAT ? ' + Bônus Combate:' + eff.COMBAT : ''}${tempMod ? ' + Mod:' + tempMod : ''})`;
+      } else if (actionType === 'fd') {
+        const aVal = isCrit ? eff.A * 2 : eff.A;
+        total = d6 + aVal + eff.H + eff.FD + eff.COMBAT + tempMod;
+        const desc = char.statDescs.A ? ` (${char.statDescs.A})` : '';
+        msg = `${isCrit ? 'DEFESA CRÍTICA! ' : ''}Força de Defesa${desc}: Total ${total}. (Dado: ${d6} + A:${aVal} + H:${eff.H}${eff.FD ? ' + Bônus FD:' + eff.FD : ''}${eff.COMBAT ? ' + Bônus Combate:' + eff.COMBAT : ''}${tempMod ? ' + Mod:' + tempMod : ''})`;
+      } else if (actionType === 'init') {
+        total = d6 + eff.H + eff.INIT + tempMod;
+        msg = `Iniciativa: Total ${total}. (Dado: ${d6} + H:${eff.H}${eff.INIT ? ' + Bônus:' + eff.INIT : ''}${tempMod ? ' + Mod:' + tempMod : ''})`;
+      }
+
+      if (totalPmCost > 0 && actionType !== 'init') {
+        msg += ` [Gastou ${totalPmCost} PM com ${activeNames.join(', ')}. Restam ${char.pmCurrent} PM]`;
+      }
+      if (actionType !== 'init') char.traits.forEach(t => { if (t.mode === 'toggle' && t.active && t.oneShot) { t.active = false; t.oneShot = false; } });
+
+      if (isCrit && actionType !== 'init') soundCrit();
+      else soundRoll();
+
+      addRollToLog(msg);
+      renderCharacter();
+      announce(msg);
+    }
+
+    function rollStatTest(statKey) {
+      const char = getActiveChar();
+      const eff = getEffectiveStats(char);
+      const tempMod = parseInt(document.getElementById('temp-mod').value, 10) || 0;
+      const target = Math.max(0, eff[statKey] + tempMod);
+      const d6 = Math.floor(Math.random() * 6) + 1;
+
+      let success = false;
+      let detail = '';
+      if (d6 === 6) {
+        success = false;
+        detail = 'FALHA CRÍTICA AUTOMÁTICA (tirou 6)!';
+        soundFumble();
+      } else if (d6 === 1 && target >= 1) {
+        success = true;
+        detail = 'SUCESSO AUTOMÁTICO (tirou 1)!';
+        soundCrit();
+      } else {
+        success = d6 <= target;
+        detail = success ? 'SUCESSO!' : 'FALHA!';
+        if (success) soundRoll(); else soundFumble();
+      }
+
+      const msg = `Teste de ${statKey} (Alvo <= ${target}): Dado caiu ${d6}. ${detail}`;
+      addRollToLog(msg);
+      announce(msg);
+    }
+
+    function rollGeneric(label, count, sides) {
+      const rolls = [];
+      let sum = 0;
+      for (let i = 0; i < count; i++) {
+        const r = Math.floor(Math.random() * sides) + 1;
+        rolls.push(r);
+        sum += r;
+      }
+      soundRoll();
+      const msg = `Rolagem ${label}: Total ${sum} (Dados: ${rolls.join(', ')})`;
+      addRollToLog(msg);
+      announce(msg);
+    }
+
+    // --- VANTAGENS E DESVANTAGENS ---
+    function addTrait() {
+      const name = document.getElementById('trait-name').value.trim();
+      if (!name) {
+        announce('Digite o nome da vantagem ou desvantagem.');
+        document.getElementById('trait-name').focus();
+        return;
+      }
+      const char = getActiveChar();
+      const newTrait = {
+        id: 't_' + Date.now(),
+        name: name,
+        category: document.getElementById('trait-category').value,
+        cost: parseInt(document.getElementById('trait-cost').value, 10) || 0,
+        mode: document.getElementById('trait-mode').value,
+        target: document.getElementById('trait-target').value,
+        mod: parseInt(document.getElementById('trait-mod').value, 10) || 0,
+        pmCost: parseInt(document.getElementById('trait-pm').value, 10) || 0,
+        active: false,
+        desc: document.getElementById('trait-desc').value.trim()
+      };
+      char.traits.push(newTrait);
+      document.getElementById('trait-name').value = '';
+      document.getElementById('trait-desc').value = '';
+      document.getElementById('trait-mod').value = '0';
+      document.getElementById('trait-pm').value = '0';
+      saveState();
+      renderCharacter();
+      announce(`${newTrait.category} ${newTrait.name} adicionada à ficha.`);
+    }
+
+    function removeTrait(id) {
+      const char = getActiveChar();
+      const idx = char.traits.findIndex(t => t.id === id);
+      if (idx > -1) {
+        const removed = char.traits.splice(idx, 1)[0];
+        saveState();
+        renderCharacter();
+        announce(`${removed.name} removida da ficha.`);
+      }
+    }
+
+    function renderTraitsList(char) {
+      const ul = document.getElementById('traits-list');
+      ul.innerHTML = '';
+      if (char.traits.length === 0) {
+        ul.innerHTML = '<li>Nenhuma vantagem ou desvantagem cadastrada.</li>';
+        return;
+      }
+      char.traits.forEach(t => {
+        const li = document.createElement('li');
+        li.className = 'card';
+        const row = document.createElement('div');
+        row.className = 'flex-row';
+        row.style.justifyContent = 'space-between';
+        const effectBadge = t.mode !== 'none' && t.target !== 'none'
+          ? ` | Efeito (${t.mode === 'passive' ? 'Passivo' : 'Ativável'}): ${t.target} ${t.mod >= 0 ? '+' + t.mod : t.mod}${t.pmCost ? ' (' + t.pmCost + ' PM)' : ''}`
+          : '';
+        const strong = document.createElement('strong');
+        strong.textContent = `${t.name} (${t.category} | ${t.cost} pts${effectBadge})`;
+        const remove = document.createElement('button');
+        remove.type = 'button'; remove.className = 'btn-danger'; remove.textContent = 'Remover';
+        remove.setAttribute('aria-label', `Remover ${t.name}`);
+        remove.addEventListener('click', () => removeTrait(t.id));
+        row.append(strong, remove); li.append(row);
+        if (t.desc) { const p = document.createElement('p'); p.style.cssText = 'margin:0.5rem 0 0 0; white-space:pre-wrap;'; p.textContent = t.desc; li.append(p); }
+        ul.appendChild(li);
+      });
+    }
+
+    // --- PERÍCIAS E MAGIAS ---
+    function addPower() {
+      const name = document.getElementById('power-name').value.trim();
+      if (!name) {
+        announce('Digite o nome da perícia ou magia.');
+        document.getElementById('power-name').focus();
+        return;
+      }
+      const char = getActiveChar();
+      const newPower = {
+        id: 'p_' + Date.now(),
+        name: name,
+        type: document.getElementById('power-type').value,
+        points: parseInt(document.getElementById('power-points').value, 10) || 0,
+        pmCost: parseInt(document.getElementById('power-pm').value, 10) || 0,
+        desc: document.getElementById('power-desc').value.trim()
+      };
+      char.powers.push(newPower);
+      document.getElementById('power-name').value = '';
+      document.getElementById('power-desc').value = '';
+      document.getElementById('power-points').value = '0';
+      document.getElementById('power-pm').value = '0';
+      saveState();
+      renderCharacter();
+      announce(`${newPower.type} ${newPower.name} adicionada.`);
+    }
+
+    function usePower(id) {
+      const char = getActiveChar();
+      const p = char.powers.find(item => item.id === id);
+      if (!p) return;
+      if (p.pmCost > 0) {
+        if (char.pmCurrent < p.pmCost) {
+          playTone(180, 'sawtooth', 0.2);
+          announce(`PM insuficiente para lançar ${p.name}! Custa ${p.pmCost} PM e você tem ${char.pmCurrent} PM.`);
+          return;
+        }
+        char.pmCurrent -= p.pmCost;
+      }
+      soundRoll();
+      const msg = `Usou ${p.name} (${p.type})${p.pmCost > 0 ? ` — Gastou ${p.pmCost} PM (Restam ${char.pmCurrent} PM)` : ''}.`;
+      addRollToLog(msg);
+      saveState();
+      renderCharacter();
+      announce(msg);
+    }
+
+    function removePower(id) {
+      const char = getActiveChar();
+      char.powers = char.powers.filter(p => p.id !== id);
+      saveState();
+      renderCharacter();
+      announce('Item removido de Perícias e Magias.');
+    }
+
+    function renderPowersList(char) {
+      const ul = document.getElementById('powers-list');
+      ul.innerHTML = '';
+      if (char.powers.length === 0) {
+        ul.innerHTML = '<li>Nenhuma perícia ou magia cadastrada.</li>';
+        return;
+      }
+      char.powers.forEach(p => {
+        const li = document.createElement('li'); li.className = 'card';
+        const row = document.createElement('div'); row.className = 'flex-row'; row.style.justifyContent = 'space-between';
+        const title = document.createElement('strong');
+        title.textContent = `${p.name} (${p.type} | Custo: ${p.pmCost} PM${p.points ? ' | ' + p.points + ' pts' : ''})`;
+        const actions = document.createElement('div'); actions.className = 'flex-row';
+        const use = document.createElement('button'); use.type = 'button'; use.textContent = p.pmCost > 0 ? `Usar / Lançar (-${p.pmCost} PM)` : 'Usar / Lançar';
+        use.addEventListener('click', () => usePower(p.id));
+        const remove = document.createElement('button'); remove.type = 'button'; remove.className = 'btn-danger'; remove.textContent = 'Remover';
+        remove.setAttribute('aria-label', `Remover ${p.name}`); remove.addEventListener('click', () => removePower(p.id));
+        actions.append(use, remove); row.append(title, actions); li.append(row);
+        if (p.desc) { const desc = document.createElement('p'); desc.style.cssText = 'margin:0.5rem 0 0 0; white-space:pre-wrap;'; desc.textContent = p.desc; li.append(desc); }
+        ul.appendChild(li);
+      });
+    }
+
+    // --- HISTÓRIA E DIÁRIO ---
+    function toggleBioMode() {
+      bioEditMode = !bioEditMode;
+      document.getElementById('bio-read-view').hidden = bioEditMode;
+      document.getElementById('bio-edit-view').hidden = !bioEditMode;
+      const btn = document.getElementById('btn-toggle-bio-mode');
+      btn.textContent = bioEditMode ? 'Alternar para Modo Leitura (Parágrafos)' : 'Alternar para Modo Edição';
+      announce(bioEditMode ? 'Modo de edição da história ativado.' : 'Modo de leitura em parágrafos ativado.');
+    }
+
+    function addDiaryEntry() {
+      const titleInput = document.getElementById('diary-title');
+      const textInput = document.getElementById('diary-text');
+      const text = textInput.value.trim();
+      if (!text) {
+        announce('Escreva alguma anotação antes de salvar no diário.');
+        textInput.focus();
+        return;
+      }
+      const char = getActiveChar();
+      const dateStr = new Date().toLocaleDateString('pt-BR');
+      const title = titleInput.value.trim() || `Sessão (${dateStr})`;
+      char.diary.unshift({
+        id: 'd_' + Date.now(),
+        title: `${title} - ${dateStr}`,
+        text: text
+      });
+      titleInput.value = '';
+      textInput.value = '';
+      saveState();
+      renderCharacter();
+      announce(`Entrada "${title}" salva no diário de sessão.`);
+    }
+
+    function removeDiaryEntry(id) {
+      const char = getActiveChar();
+      char.diary = char.diary.filter(d => d.id !== id);
+      saveState();
+      renderCharacter();
+      announce('Anotação de sessão removida.');
+    }
+
+    function renderDiaryList(char) {
+      const container = document.getElementById('diary-list');
+      container.innerHTML = '';
+      if (char.diary.length === 0) {
+        container.innerHTML = '<p>Nenhuma sessão registrada no diário ainda.</p>';
+        return;
+      }
+      char.diary.forEach(d => {
+        const article = document.createElement('article'); article.className = 'card';
+        const row = document.createElement('div'); row.className = 'flex-row'; row.style.justifyContent = 'space-between';
+        const title = document.createElement('h4'); title.style.margin = '0'; title.textContent = d.title;
+        const remove = document.createElement('button'); remove.type = 'button'; remove.className = 'btn-danger'; remove.textContent = 'Excluir';
+        remove.setAttribute('aria-label', `Excluir anotação ${d.title}`); remove.addEventListener('click', () => removeDiaryEntry(d.id));
+        row.append(title, remove);
+        const text = document.createElement('p'); text.style.cssText = 'margin:0.5rem 0 0 0; white-space:pre-wrap;'; text.textContent = d.text;
+        article.append(row, text); container.appendChild(article);
+      });
+    }
+
+    // --- MÚLTIPLOS PERSONAGENS E EXPORTAÇÃO ---
+    function populateCharSelect() {
+      const sel = document.getElementById('char-select');
+      sel.innerHTML = '';
+      appState.characters.forEach(c => {
+        const opt = document.createElement('option');
+        opt.value = c.id;
+        opt.textContent = `${c.name} (${c.concept || '3D&T'})`;
+        if (c.id === appState.activeCharId) opt.selected = true;
+        sel.appendChild(opt);
+      });
+    }
+
+    function switchCharacter(charId) {
+      appState.activeCharId = charId;
+      saveState();
+      renderCharacter();
+      announce(`Personagem alternado para ${getActiveChar().name}.`);
+    }
+
+    function createNewCharacter() {
+      const name = prompt('Digite o nome do novo personagem:', 'Novo Personagem');
+      if (!name) return;
+      const newChar = createDefaultCharacter(name.trim());
+      appState.characters.push(newChar);
+      appState.activeCharId = newChar.id;
+      saveState();
+      populateCharSelect();
+      renderCharacter();
+      announce(`Personagem ${newChar.name} criado e selecionado.`);
+    }
+
+    function deleteCurrentCharacter() {
+      if (appState.characters.length <= 1) {
+        announce('Você precisa ter pelo menos um personagem salvo na ficha.');
+        return;
+      }
+      const char = getActiveChar();
+      if (confirm(`Tem certeza que deseja excluir permanentemente a ficha de ${char.name}?`)) {
+        appState.characters = appState.characters.filter(c => c.id !== char.id);
+        appState.activeCharId = appState.characters[0].id;
+        saveState();
+        populateCharSelect();
+        renderCharacter();
+        announce(`Personagem excluído. Ficha ativa agora é ${getActiveChar().name}.`);
+      }
+    }
+
+    function copyMarkdownSummary() {
+      const char = getActiveChar();
+      const eff = getEffectiveStats(char);
+      const pts = calculatePoints(char);
+      const vants = char.traits.map(t => `${t.name} (${t.cost} pts)`).join(', ') || 'Nenhuma';
+      const powers = char.powers.map(p => `${p.name} (${p.pmCost} PM)`).join(', ') || 'Nenhuma';
+
+      const md = [
+        `*${char.name}* (${char.concept} — ${char.scale} — ${pts.spent}/${char.pointsTotal} pts | ${char.xp} PEs)`,
+        `*PV:* ${char.pvCurrent}/${eff.maxPV} | *PM:* ${char.pmCurrent}/${eff.maxPM}`,
+        `*Características:* F${eff.F}, H${eff.H}, R${eff.R}, A${eff.A}, PdF${eff.PdF}`,
+        `*Vantagens e Desvantagens:* ${vants}`,
+        `*Perícias e Magias:* ${powers}`
+      ].join('\n');
+
+      if (!navigator.clipboard || !navigator.clipboard.writeText) {
+        announce('A cópia automática não está disponível neste navegador.', true); return;
+      }
+      navigator.clipboard.writeText(md).then(() => {
+        announce('Resumo da ficha copiado para a área de transferência!');
+      }).catch(() => announce('Não foi possível copiar o resumo. Verifique a permissão da área de transferência.', true));
+    }
+
+    function exportJSON() {
+      const blob = new Blob([JSON.stringify(appState, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = 'fichas-3det-alpha.json';
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      announce('Arquivo JSON de backup exportado.');
+    }
+
+    function importJSON(e) {
+      const file = e.target.files[0];
+      if (!file) return;
+      if (file.size > 5 * 1024 * 1024) { announce('O arquivo excede o limite de 5 MB.', true); e.target.value = ''; document.getElementById('btn-import-json').focus(); return; }
+      const reader = new FileReader();
+      reader.onload = (ev) => {
+        try {
+          const imported = JSON.parse(ev.target.result);
+          const normalized = normalizeState(imported);
+          if (normalized) {
+            appState = normalized;
+            saveState(); populateCharSelect(); applySavedAccordions(); renderCharacter();
+            announce('Fichas importadas. Confira os itens migrados e suas regras.');
+          } else announce('Arquivo JSON inválido ou sem personagens.', true);
+        } catch (err) {
+          announce('Erro ao ler o arquivo JSON.', true);
+        } finally {
+          e.target.value = '';
+          document.getElementById('btn-import-json').focus();
+        }
+      };
+      reader.onerror = () => { announce('Não foi possível ler o arquivo JSON.', true); e.target.value = ''; document.getElementById('btn-import-json').focus(); };
+      reader.readAsText(file);
+    }
+
+    // --- INICIALIZAÇÃO ---
+    window.addEventListener('DOMContentLoaded', () => {
+      loadState();
+      populateCharSelect();
+      applySavedAccordions();
+
+      document.getElementById('btn-import-json').addEventListener('click', () => document.getElementById('input-import-json').click());
+      const soundBtn = document.getElementById('btn-toggle-sound');
+      soundBtn.setAttribute('aria-pressed', String(appState.soundEnabled));
+      soundBtn.textContent = `Som: ${appState.soundEnabled ? 'Ligado' : 'Desligado'}`;
+
+      renderCharacter();
     });
-    $('#character-select').addEventListener('change', () => { data.activeId = $('#character-select').value; renderFields(); save('Personagem trocado.'); });
-    $('#new-character').addEventListener('click', () => {
-      if (data.characters.length >= 100) { announce('Limite de 100 personagens atingido.'); return; }
-      const name = window.prompt('Nome do novo personagem:', `Personagem ${data.characters.length + 1}`);
-      if (name === null) return; const character = blankCharacter(name.trim() || `Personagem ${data.characters.length + 1}`); data.characters.push(character); data.activeId = character.id; renderFields(); save('Novo personagem criado.'); $('#char-name').focus();
-    });
-    $('#delete-character').addEventListener('click', () => {
-      if (data.characters.length <= 1) { announce('A ficha precisa ter pelo menos um personagem.'); return; }
-      pendingDelete = true; $('#dialog-message').textContent = `Excluir “${current().name || 'Personagem sem nome'}”? Essa ação remove a ficha deste navegador.`;
-      const dialog = $('#confirm-dialog'); if (typeof dialog.showModal === 'function') dialog.showModal(); else if (window.confirm($('#dialog-message').textContent)) deleteCurrent();
-    });
-    $('#confirm-dialog').addEventListener('close', () => { if (pendingDelete && $('#confirm-dialog').returnValue === 'confirm') deleteCurrent(); pendingDelete = false; });
-    $$('.accordion-button').forEach((button) => button.addEventListener('click', () => setAccordion(button, button.getAttribute('aria-expanded') !== 'true')));
-    $('#expand-all').addEventListener('click', () => $$('.accordion-button').forEach((b) => setAccordion(b, true)));
-    $('#collapse-all').addEventListener('click', () => $$('.accordion-button').forEach((b) => setAccordion(b, false)));
-    document.body.addEventListener('click', (event) => {
-      const b = event.target.closest('button'); if (!b) return;
-      if (b.dataset.resource) clampResource(b.dataset.resource, Number(b.dataset.delta));
-      if (b.dataset.restore) restoreResource(b.dataset.restore);
-      if (b.dataset.customResource) { const amount = Math.max(0, Math.trunc(Number($(`#${b.dataset.customResource}-amount`).value) || 0)); clampResource(b.dataset.customResource, amount * Number(b.dataset.sign)); }
-      if (b.dataset.roll) doCombatRoll(b.dataset.roll);
-      if (b.dataset.test) doStatTest(b.dataset.test);
-      if (b.dataset.dice) doDice(Number(b.dataset.dice));
-      if (b.dataset.removeKind) removeItem(b.dataset.removeKind, b.dataset.removeId);
-    });
-    $('#effects-list').addEventListener('change', (event) => { const id = event.target.dataset.effect; if (!id) return; const effect = current().effects.find((x) => x.id === id); if (effect) { effect.selected = event.target.checked; save(); } });
-    $('#effect-form').addEventListener('submit', (event) => { event.preventDefault(); const name = $('#effect-name').value.trim(); if (!name) return; current().effects.push({ id: uid(), name, cost: Math.max(0, Math.trunc(Number($('#effect-cost').value) || 0)), modifier: Math.trunc(Number($('#effect-mod').value) || 0), selected: false }); event.target.reset(); $('#effect-cost').value = '0'; $('#effect-mod').value = '0'; renderItems('effects'); save('Efeito adicionado.'); $('#effect-name').focus(); });
-    bindListForm('advantage-form', 'advantages', () => ({ name: $('#advantage-name').value.trim(), cost: Math.max(0, Math.trunc(Number($('#advantage-cost').value) || 0)), description: $('#advantage-desc').value.trim() }));
-    bindListForm('disadvantage-form', 'disadvantages', () => ({ name: $('#disadvantage-name').value.trim(), value: Math.max(0, Math.trunc(Number($('#disadvantage-value').value) || 0)), description: $('#disadvantage-desc').value.trim() }));
-    bindListForm('skill-form', 'skills', () => ({ name: $('#skill-name').value.trim(), description: $('#skill-desc').value.trim() }));
-    bindListForm('equipment-form', 'equipment', () => ({ name: $('#equipment-name').value.trim(), description: $('#equipment-desc').value.trim() }));
-    bindListForm('attack-form', 'attacks', () => ({ name: $('#attack-name').value.trim(), type: $('#attack-type').value.trim(), description: $('#attack-desc').value.trim() }));
-    $('#clear-rolls').addEventListener('click', () => { current().rollHistory = []; renderRollHistory(); $('#last-roll').textContent = 'Histórico limpo.'; save('Histórico de rolagens limpo.'); });
-    $('#toggle-sound').addEventListener('click', (event) => { soundEnabled = !soundEnabled; event.currentTarget.setAttribute('aria-pressed', String(soundEnabled)); event.currentTarget.textContent = `Som: ${soundEnabled ? 'ligado' : 'desligado'}`; announce(`Som ${soundEnabled ? 'ligado' : 'desligado'}.`); });
-    $('#copy-summary').addEventListener('click', copySummary);
-    $('#export-json').addEventListener('click', exportJSON);
-    $('#import-button').addEventListener('click', () => $('#import-file').click());
-    $('#import-file').addEventListener('change', importJSON);
-  }
-  function setAccordion(button, open) { button.setAttribute('aria-expanded', String(open)); const panel = document.getElementById(button.getAttribute('aria-controls')); panel.hidden = !open; }
-  function bindListForm(formId, kind, read) {
-    $(`#${formId}`).addEventListener('submit', (event) => { event.preventDefault(); const item = read(); if (!item.name) return; item.id = uid(); current()[kind].push(item); event.target.reset(); if (kind === 'advantages' || kind === 'disadvantages') { const cost = kind === 'advantages' ? '#advantage-cost' : '#disadvantage-value'; $(cost).value = '1'; updatePoints(); } renderItems(kind); save('Item adicionado.'); const first = event.target.querySelector('input'); if (first) first.focus(); });
-  }
-  function removeItem(kind, id) { const c = current(); if (!Array.isArray(c[kind])) return; const item = c[kind].find((x) => x.id === id); c[kind] = c[kind].filter((x) => x.id !== id); renderItems(kind); if (kind === 'advantages' || kind === 'disadvantages') updatePoints(); save(item ? `${item.name} removido.` : 'Item removido.'); }
-  function deleteCurrent() {
-    if (data.characters.length <= 1) return;
-    const index = data.characters.findIndex((c) => c.id === data.activeId); data.characters.splice(index, 1); data.activeId = data.characters[Math.max(0, index - 1)].id; renderFields(); save('Personagem excluído.'); $('#character-select').focus();
-  }
-  function summaryText() {
-    const c = current(); const maxResource = Math.max(0, c.stats.R.value + c.stats.R.bonus) * 5; const lines = [`Ficha 3D&T Alpha — ${c.name || 'Sem nome'}`, `Jogador: ${c.player || '—'}`, `Conceito: ${c.concept || '—'}`, `Escala: ${c.scale}`, `Características: ${statDefs.map(([key]) => `${key} ${c.stats[key].value + c.stats[key].bonus}${c.stats[key].bonus ? ` (base ${c.stats[key].value}, bônus ${c.stats[key].bonus})` : ''}`).join(' | ')}`, `PV: ${c.pv}/${maxResource} | PM: ${c.pm}/${maxResource}`,  `Pontos gastos líquidos: ${statDefs.reduce((s, [k]) => s + c.stats[k].value, 0) + c.advantages.reduce((s, x) => s + x.cost, 0) - c.disadvantages.reduce((s, x) => s + x.value, 0)} de ${c.pointsTotal}; PEs: ${c.xp}`];
-    for (const [kind, title] of [['advantages','Vantagens'],['disadvantages','Desvantagens'],['skills','Perícias'],['equipment','Equipamentos'],['attacks','Ataques']]) { if (c[kind].length) lines.push(`${title}: ${c[kind].map((x) => `${x.name}${x.description ? ` — ${x.description}` : ''}`).join('; ')}`); }
-    if (c.generalNotes) lines.push(`Anotações: ${c.generalNotes}`); return lines.join('\n');
-  }
-  async function copySummary() {
-    const text = summaryText();
-    try { await navigator.clipboard.writeText(text); announce('Resumo copiado para a área de transferência.'); }
-    catch (_) { const textarea = document.createElement('textarea'); textarea.value = text; textarea.style.position = 'fixed'; textarea.style.opacity = '0'; document.body.append(textarea); textarea.select(); const ok = document.execCommand('copy'); textarea.remove(); announce(ok ? 'Resumo copiado para a área de transferência.' : 'Não foi possível copiar o resumo.'); }
-  }
-  function exportJSON() {
-    const payload = { format: 'ficha-3dt-alpha', version: 1, exportedAt: new Date().toISOString(), activeId: data.activeId, characters: data.characters };
-    const url = URL.createObjectURL(new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' })); const a = document.createElement('a'); a.href = url; a.download = 'ficha-3dt-alpha.json'; document.body.append(a); a.click(); a.remove(); URL.revokeObjectURL(url); announce('Arquivo JSON exportado.');
-  }
-  async function importJSON(event) {
-    const file = event.target.files && event.target.files[0]; if (!file) return;
-    try {
-      if (file.size > 5 * 1024 * 1024) throw new Error('O arquivo excede 5 MB.');
-      const parsed = JSON.parse(await file.text());
-      let incoming;
-      if (Array.isArray(parsed)) incoming = parsed;
-      else if (Array.isArray(parsed.characters)) incoming = parsed.characters;
-      else if (parsed.character && typeof parsed.character === 'object') incoming = [parsed.character];
-      else if (parsed.stats) incoming = [parsed];
-      else throw new Error('O arquivo não contém uma ficha reconhecida.');
-      if (!incoming.length || incoming.length > 100) throw new Error('O arquivo deve conter de 1 a 100 personagens.');
-      const chars = incoming.map(normalizeCharacter);
-      const activeCandidate = parsed.activeId;
-      data = { characters: chars, activeId: chars.some((c) => c.id === activeCandidate) ? activeCandidate : chars[0].id };
-      renderFields(); save('Ficha importada com sucesso.'); $('#character-select').focus();
-    } catch (error) { announce(error.message === 'O arquivo excede 5 MB.' ? error.message : `Importação não concluída: ${error.message || 'arquivo inválido'}`); }
-    finally { event.target.value = ''; }
-  }
-  bindForms();
-  renderFields();
-})();
