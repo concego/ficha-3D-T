@@ -87,13 +87,14 @@
 
       <!-- Efeitos e Manobras Ativáveis no Combate -->
       <div class="card">
-        <h3 style="margin-top:0;">Efeitos e Manobras Ativáveis</h3>
-        <p style="margin-top:0; color:var(--text-muted); font-size:0.9rem;">
-          Marque os efeitos que deseja aplicar na próxima rolagem (o custo de PM é descontado automaticamente ao rolar ataque ou defesa).
-        </p>
+        <h3 style="margin-top:0;">Bônus permanentes e temporários de rolagem</h3>
+        <p style="margin-top:0; color:var(--text-muted); font-size:0.9rem;">Bônus permanentes ficam sempre ativos e não gastam PM. Bônus temporários marcados são usados uma vez na próxima rolagem compatível; o custo é cobrado somente se o bônus se aplicar, e depois ele desativa.</p>
+        <h4>Bônus permanentes ativos</h4>
+        <ul id="permanent-effects-list" class="clean-list"></ul>
+        <h4>Bônus temporários prontos para a próxima rolagem compatível</h4>
         <div id="active-effects-list" class="flex-row"></div>
         <div class="flex-row" style="margin-top:0.75rem;">
-          <label for="temp-mod">Modificador Temporário Extra na Rolagem:</label>
+          <label for="temp-mod">Modificador global temporário (uma rolagem de combate ou teste):</label>
           <input type="number" id="temp-mod" value="0" style="width:80px;">
         </div>
       </div>
@@ -283,8 +284,8 @@
             <label for="trait-mode">Modo do Efeito Numérico:</label>
             <select id="trait-mode" style="width:100%;">
               <option value="none">Apenas Texto / Narrativo (Sem efeito numérico)</option>
-              <option value="passive">Passivo (Soma permanente na ficha)</option>
-              <option value="toggle">Ativável no Combate (Checkbox na Seção 1)</option>
+              <option value="permanent">Permanente (sempre aplicado; sem custo em PM)</option>
+              <option value="temporary">Temporário (uma rolagem compatível; custo em PM uma vez)</option>
             </select>
           </div>
           <div class="field-group">
@@ -293,7 +294,7 @@
               <option value="none">Nenhum</option>
               <option value="FA">Força de Ataque (FA Total)</option>
               <option value="FD">Força de Defesa (FD Total)</option>
-              <option value="COMBAT">Ataque e Defesa (efeito temporário)</option>
+              <option value="COMBAT">Ataque e Defesa</option>
               <option value="F">Força (F)</option>
               <option value="H">Habilidade (H)</option>
               <option value="R">Resistência (R - afeta PV e PM máx)</option>
@@ -305,7 +306,7 @@
             </select>
           </div>
           <div class="field-group">
-            <label for="trait-mod">Valor do Efeito (Ex: 2, -1, 10) e Custo em PM (se ativável):</label>
+            <label for="trait-mod">Valor do efeito e custo em PM (cobrado uma vez em bônus temporário):</label>
             <div class="flex-row">
               <input type="number" id="trait-mod" value="0" aria-label="Valor do Bônus ou Penalidade" style="width:45%;" placeholder="Bônus">
               <input type="number" id="trait-pm" value="0" min="0" aria-label="Custo em PM ao usar" style="width:45%;" placeholder="Custo PM">
