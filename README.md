@@ -2,6 +2,12 @@
 
 Ficha de fã para 3D&T Alpha, publicada como página estática no GitHub Pages.
 
+## Baixar e usar
+
+Acesse a [release v1.0.0](https://github.com/concego/ficha-3D-T/releases/tag/v1.0.0) e baixe **Source code (zip)**. Extraia o arquivo e abra `index.html` em um navegador atualizado. Não é necessário instalar servidor nem dependências.
+
+A versão online está no [GitHub Pages](https://concego.github.io/ficha-3D-T/).
+
 ## Recursos
 
 - Vários personagens com salvamento local no navegador.
