@@ -1,4 +1,4 @@
-const STORAGE_KEY = 'ficha_3det_alpha_v2';
+const STORAGE_KEY = 'ficha_3det_alpha_v3';
     let appState = {
       soundEnabled: true,
       activeCharId: null,
@@ -26,7 +26,7 @@ const STORAGE_KEY = 'ficha_3det_alpha_v2';
             name: 'Ataque Especial',
             category: 'Vantagem',
             cost: 1,
-            mode: 'toggle',
+            mode: 'temporary',
             target: 'FA',
             mod: 2,
             pmCost: 2,
@@ -68,11 +68,11 @@ const STORAGE_KEY = 'ficha_3det_alpha_v2';
         c.stats[key] = Math.max(0, cleanNumber(base, key === 'R' ? 1 : 0, 0, 100));
         c.statDescs[key] = cleanText((raw && typeof raw === 'object' && raw.description) || (old.statDescs && old.statDescs[key]), 500);
         const bonus = raw && typeof raw === 'object' ? cleanNumber(raw.bonus, 0, -100, 100) : 0;
-        if (bonus) c.traits.push({ id: `migrated-bonus-${key}-${c.id}`, name: `Bônus passivo migrado de ${key}`, category: 'Bônus migrado', cost: 0, mode: 'passive', target: key, mod: bonus, pmCost: 0, active: false, desc: 'Bônus preservado da versão anterior da ficha.' });
+        if (bonus) c.traits.push({ id: `migrated-bonus-${key}-${c.id}`, name: `Bônus passivo migrado de ${key}`, category: 'Bônus migrado', cost: 0, mode: 'permanent', target: key, mod: bonus, pmCost: 0, active: false, desc: 'Bônus preservado da versão anterior da ficha.' });
       }
       for (const item of (Array.isArray(old.advantages) ? old.advantages : []).filter(x => x && typeof x === 'object')) c.traits.push({ id: cleanText(item.id, 100) || `mig-a-${Date.now()}-${Math.random()}`, name: cleanText(item.name, 120), category: 'Vantagem', cost: cleanNumber(item.cost, 0, 0), mode: 'none', target: 'none', mod: 0, pmCost: 0, active: false, desc: cleanText(item.description, 2000) });
       for (const item of (Array.isArray(old.disadvantages) ? old.disadvantages : []).filter(x => x && typeof x === 'object')) c.traits.push({ id: cleanText(item.id, 100) || `mig-d-${Date.now()}-${Math.random()}`, name: cleanText(item.name, 120), category: 'Desvantagem', cost: -cleanNumber(item.value, 0, 0), mode: 'none', target: 'none', mod: 0, pmCost: 0, active: false, desc: cleanText(item.description, 2000) });
-      for (const effect of (Array.isArray(old.effects) ? old.effects : []).filter(x => x && typeof x === 'object')) c.traits.push({ id: cleanText(effect.id, 100) || `mig-e-${Date.now()}-${Math.random()}`, name: cleanText(effect.name, 120), category: 'Efeito migrado', cost: 0, mode: 'toggle', target: 'COMBAT', mod: cleanNumber(effect.modifier, 0, -1000, 1000), pmCost: cleanNumber(effect.cost, 0, 0), active: Boolean(effect.selected), oneShot: true, desc: 'Migrado como modificador genérico de ataque/defesa. Ele se desativa após uma rolagem, como na versão anterior.' });
+      for (const effect of (Array.isArray(old.effects) ? old.effects : []).filter(x => x && typeof x === 'object')) c.traits.push({ id: cleanText(effect.id, 100) || `mig-e-${Date.now()}-${Math.random()}`, name: cleanText(effect.name, 120), category: 'Efeito migrado', cost: 0, mode: 'temporary', target: 'COMBAT', mod: cleanNumber(effect.modifier, 0, -1000, 1000), pmCost: cleanNumber(effect.cost, 0, 0), active: Boolean(effect.selected), desc: 'Migrado como modificador genérico de ataque/defesa. Ele se desativa após uma rolagem, como na versão anterior.' });
       c.powers = (Array.isArray(old.skills) ? old.skills : []).filter(item => item && typeof item === 'object').map((item, i) => ({ id: cleanText(item.id, 100) || `mig-s-${i}-${c.id}`, name: cleanText(item.name, 120), type: 'Perícia / Especialização', points: 0, pmCost: 0, desc: cleanText(item.description, 2000) }));
       c.pointsTotal = cleanNumber(old.pointsTotal, 5, 0); c.xp = cleanNumber(old.xp, 0, 0);
       c.pvCurrent = cleanNumber(old.pv, c.stats.R * 5, 0); c.pmCurrent = cleanNumber(old.pm, c.stats.R * 5, 0);
@@ -90,6 +90,12 @@ const STORAGE_KEY = 'ficha_3det_alpha_v2';
       c.rollLog = (Array.isArray(old.rollHistory) ? old.rollHistory : Array.isArray(old.rollLog) ? old.rollLog : []).slice(0, 10).map(x => cleanText(x, 500));
       return c;
     }
+    function normalizeTraitMode(mode, target) {
+      if (mode === 'passive') return 'permanent';
+      if (mode === 'toggle') return ['PV_MAX', 'PM_MAX'].includes(target) ? 'permanent' : 'temporary';
+      if (mode === 'temporary' && ['PV_MAX', 'PM_MAX'].includes(target)) return 'permanent';
+      return ['none', 'permanent', 'temporary'].includes(mode) ? mode : 'none';
+    }
     function normalizeCharacter(input, index) {
       if (!input || typeof input !== 'object' || Array.isArray(input)) return createDefaultCharacter(`Personagem ${index + 1}`);
       const legacyRepoShape = input.advantages || input.disadvantages || input.effects || (input.stats && typeof input.stats.F === 'object');
@@ -105,13 +111,12 @@ const STORAGE_KEY = 'ficha_3det_alpha_v2';
       }
       c.pvCurrent = cleanNumber(input.pvCurrent, c.stats.R * 5, 0);
       c.pmCurrent = cleanNumber(input.pmCurrent, c.stats.R * 5, 0);
-      const validModes = ['none','passive','toggle'];
       const validTargets = ['none','FA','FD','COMBAT','F','H','R','A','PdF','PV_MAX','PM_MAX','INIT'];
       c.traits = Array.isArray(input.traits) ? input.traits.slice(0,500).map((t,i) => ({
         id: cleanText(t && t.id,100) || `trait-${i}-${c.id}`, name: cleanText(t && t.name,120),
         category: cleanText(t && t.category,80) || 'Vantagem', cost: cleanNumber(t && t.cost,0),
-        mode: validModes.includes(t && t.mode) ? t.mode : 'none', target: validTargets.includes(t && t.target) ? t.target : 'none',
-        mod: cleanNumber(t && t.mod,0,-10000,10000), pmCost: cleanNumber(t && t.pmCost,0,0), active: Boolean(t && t.active), oneShot: Boolean(t && t.oneShot), desc: cleanText(t && t.desc,5000)
+        mode: normalizeTraitMode(t && t.mode, t && t.target), target: validTargets.includes(t && t.target) ? t.target : 'none',
+        mod: cleanNumber(t && t.mod,0,-10000,10000), pmCost: cleanNumber(t && t.pmCost,0,0), active: Boolean(t && t.active), desc: cleanText(t && t.desc,5000)
       })) : [];
       c.powers = Array.isArray(input.powers) ? input.powers.slice(0,500).map((x,i) => ({ id:cleanText(x && x.id,100)||`power-${i}-${c.id}`, name:cleanText(x && x.name,120), type:cleanText(x && x.type,100)||'Perícia / Especialização', points:cleanNumber(x && x.points,0), pmCost:cleanNumber(x && x.pmCost,0,0), desc:cleanText(x && x.desc,5000) })) : [];
       c.diary = Array.isArray(input.diary) ? input.diary.filter(d => d && typeof d === 'object').slice(0,500).map((d,i) => ({ id:cleanText(d && d.id,100)||`diary-${i}-${c.id}`, title:cleanText(d && d.title,200), text:cleanText(d && d.text,12000) })) : [];
@@ -132,9 +137,6 @@ const STORAGE_KEY = 'ficha_3det_alpha_v2';
     function loadState() {
       let saved = null;
       try { saved = localStorage.getItem(STORAGE_KEY); } catch (e) { announce('O navegador não permitiu acessar os dados salvos.', true); }
-      if (!saved) {
-        try { saved = localStorage.getItem('ficha-3dt-alpha-v1'); } catch (e) {}
-      }
       if (saved) {
         try {
           const normalized = normalizeState(JSON.parse(saved));
@@ -248,7 +250,7 @@ const STORAGE_KEY = 'ficha_3det_alpha_v2';
     function getEffectiveStats(char) {
       const totals = { F: char.stats.F, H: char.stats.H, R: char.stats.R, A: char.stats.A, PdF: char.stats.PdF, FA: 0, FD: 0, COMBAT: 0, INIT: 0, PV_MAX: 0, PM_MAX: 0 };
       char.traits.forEach(t => {
-        const shouldApply = (t.mode === 'passive') || (t.mode === 'toggle' && t.active);
+        const shouldApply = (t.mode === 'permanent') || (t.mode === 'temporary' && t.active);
         if (shouldApply && t.target !== 'none' && totals[t.target] !== undefined) {
           totals[t.target] += Number(t.mod) || 0;
         }
@@ -359,7 +361,12 @@ const STORAGE_KEY = 'ficha_3det_alpha_v2';
 
       const activeContainer = document.getElementById('active-effects-list');
       activeContainer.innerHTML = '';
-      const toggleTraits = char.traits.filter(t => t.mode === 'toggle');
+      const permanentList = document.getElementById('permanent-effects-list');
+      permanentList.replaceChildren();
+      const permanentTraits = char.traits.filter(t => t.mode === 'permanent' && t.target !== 'none' && Number(t.mod));
+      if (!permanentTraits.length) { const li = document.createElement('li'); li.textContent = 'Nenhum bônus permanente de rolagem cadastrado.'; permanentList.appendChild(li); }
+      else permanentTraits.forEach(t => { const li = document.createElement('li'); const sign = t.mod >= 0 ? `+${t.mod}` : t.mod; li.textContent = `${t.name}: ${targetLabel(t.target)} ${sign} (permanente; sem custo em PM).`; permanentList.appendChild(li); });
+      const toggleTraits = char.traits.filter(t => t.mode === 'temporary');
       if (toggleTraits.length === 0) {
         activeContainer.innerHTML = '<span>Nenhum efeito ativável cadastrado nas Vantagens.</span>';
       } else {
@@ -382,7 +389,7 @@ const STORAGE_KEY = 'ficha_3det_alpha_v2';
           lbl.style.marginLeft = '0.35rem';
           const modSign = t.mod >= 0 ? `+${t.mod}` : t.mod;
           const targetText = targetLabel(t.target);
-          lbl.textContent = `${t.name} (${t.target !== 'none' ? targetText + ' ' + modSign : ''} | ${t.pmCost} PM)`;
+          lbl.textContent = `${t.name} (${t.target !== 'none' ? targetText + ' ' + modSign : ''} | ${t.pmCost} PM uma vez; próxima rolagem compatível)`;
           wrapper.appendChild(cb);
           wrapper.appendChild(lbl);
           activeContainer.appendChild(wrapper);
@@ -498,93 +505,87 @@ const STORAGE_KEY = 'ficha_3det_alpha_v2';
       announce('Histórico de rolagens limpo.');
     }
 
+    function applicableTemporaryTraits(char, rollType) {
+      const targetsByAction = {
+        fa_cc: ['FA', 'COMBAT', 'F', 'H'],
+        fa_pdf: ['FA', 'COMBAT', 'PdF', 'H'],
+        fd: ['FD', 'COMBAT', 'A', 'H'],
+        init: ['INIT', 'H']
+      };
+      const targets = rollType.startsWith('stat:') ? [rollType.slice(5)] : (targetsByAction[rollType] || []);
+      return char.traits.filter(t => t.mode === 'temporary' && t.active && targets.includes(t.target));
+    }
+    function temporaryCost(traits) { return traits.reduce((sum, trait) => sum + (Number(trait.pmCost) || 0), 0); }
+    function consumeTemporaryTraits(traits) { traits.forEach(t => { t.active = false; }); }
+    function consumeGlobalRollModifier() { document.getElementById('temp-mod').value = '0'; }
+
     function rollCombat(actionType) {
       const char = getActiveChar();
-      const eff = getEffectiveStats(char);
+      const activeTemporary = applicableTemporaryTraits(char, actionType);
+      const totalPmCost = temporaryCost(activeTemporary);
       const tempMod = parseInt(document.getElementById('temp-mod').value, 10) || 0;
-
-      let totalPmCost = 0;
-      const activeNames = [];
-      char.traits.forEach(t => {
-        if (t.mode === 'toggle' && t.active) {
-          totalPmCost += Number(t.pmCost) || 0;
-          activeNames.push(t.name);
-        }
-      });
-
-      if (totalPmCost > 0 && actionType !== 'init') {
-        if (char.pmCurrent < totalPmCost) {
-          playTone(180, 'sawtooth', 0.2);
-          announce(`PM insuficiente para usar ${activeNames.join(', ')}! Custo: ${totalPmCost} PM, você tem ${char.pmCurrent} PM.`);
-          return;
-        }
-        char.pmCurrent -= totalPmCost;
+      if (char.pmCurrent < totalPmCost) {
+        playTone(180, 'sawtooth', 0.2);
+        announce(`PM insuficiente para ${activeTemporary.map(t => t.name).join(', ')}. Custo: ${totalPmCost} PM; disponíveis: ${char.pmCurrent} PM.`, true);
+        return;
       }
-
+      const eff = getEffectiveStats(char);
+      if (totalPmCost > 0) char.pmCurrent -= totalPmCost;
       const d6 = Math.floor(Math.random() * 6) + 1;
-      const isCrit = (d6 === 6);
-      let total = 0;
-      let msg = '';
-
+      const isCrit = d6 === 6;
+      let total = 0; let msg = '';
       if (actionType === 'fa_cc') {
         const fVal = isCrit ? eff.F * 2 : eff.F;
         total = d6 + fVal + eff.H + eff.FA + eff.COMBAT + tempMod;
         const desc = char.statDescs.F ? ` (${char.statDescs.F})` : '';
-        msg = `${isCrit ? 'CRÍTICO! ' : ''}Ataque Corpo a Corpo${desc}: Total ${total}. (Dado: ${d6} + F:${fVal} + H:${eff.H}${eff.FA ? ' + Bônus FA:' + eff.FA : ''}${eff.COMBAT ? ' + Bônus Combate:' + eff.COMBAT : ''}${tempMod ? ' + Mod:' + tempMod : ''})`;
+        msg = `${isCrit ? 'CRÍTICO! ' : ''}Ataque Corpo a Corpo${desc}: Total ${total}. (Dado: ${d6} + F:${fVal} + H:${eff.H}${eff.FA ? ' + Bônus FA:' + eff.FA : ''}${eff.COMBAT ? ' + Bônus Combate:' + eff.COMBAT : ''}${tempMod ? ' + Mod temporário:' + tempMod : ''})`;
       } else if (actionType === 'fa_pdf') {
         const pdfVal = isCrit ? eff.PdF * 2 : eff.PdF;
         total = d6 + pdfVal + eff.H + eff.FA + eff.COMBAT + tempMod;
         const desc = char.statDescs.PdF ? ` (${char.statDescs.PdF})` : '';
-        msg = `${isCrit ? 'CRÍTICO! ' : ''}Ataque à Distância${desc}: Total ${total}. (Dado: ${d6} + PdF:${pdfVal} + H:${eff.H}${eff.FA ? ' + Bônus FA:' + eff.FA : ''}${eff.COMBAT ? ' + Bônus Combate:' + eff.COMBAT : ''}${tempMod ? ' + Mod:' + tempMod : ''})`;
+        msg = `${isCrit ? 'CRÍTICO! ' : ''}Ataque à Distância${desc}: Total ${total}. (Dado: ${d6} + PdF:${pdfVal} + H:${eff.H}${eff.FA ? ' + Bônus FA:' + eff.FA : ''}${eff.COMBAT ? ' + Bônus Combate:' + eff.COMBAT : ''}${tempMod ? ' + Mod temporário:' + tempMod : ''})`;
       } else if (actionType === 'fd') {
         const aVal = isCrit ? eff.A * 2 : eff.A;
         total = d6 + aVal + eff.H + eff.FD + eff.COMBAT + tempMod;
         const desc = char.statDescs.A ? ` (${char.statDescs.A})` : '';
-        msg = `${isCrit ? 'DEFESA CRÍTICA! ' : ''}Força de Defesa${desc}: Total ${total}. (Dado: ${d6} + A:${aVal} + H:${eff.H}${eff.FD ? ' + Bônus FD:' + eff.FD : ''}${eff.COMBAT ? ' + Bônus Combate:' + eff.COMBAT : ''}${tempMod ? ' + Mod:' + tempMod : ''})`;
+        msg = `${isCrit ? 'DEFESA CRÍTICA! ' : ''}Força de Defesa${desc}: Total ${total}. (Dado: ${d6} + A:${aVal} + H:${eff.H}${eff.FD ? ' + Bônus FD:' + eff.FD : ''}${eff.COMBAT ? ' + Bônus Combate:' + eff.COMBAT : ''}${tempMod ? ' + Mod temporário:' + tempMod : ''})`;
       } else if (actionType === 'init') {
         total = d6 + eff.H + eff.INIT + tempMod;
-        msg = `Iniciativa: Total ${total}. (Dado: ${d6} + H:${eff.H}${eff.INIT ? ' + Bônus:' + eff.INIT : ''}${tempMod ? ' + Mod:' + tempMod : ''})`;
+        msg = `Iniciativa: Total ${total}. (Dado: ${d6} + H:${eff.H}${eff.INIT ? ' + Bônus:' + eff.INIT : ''}${tempMod ? ' + Mod temporário:' + tempMod : ''})`;
+      } else return;
+      if (activeTemporary.length) {
+        const names = activeTemporary.map(t => t.name).join(', ');
+        msg += totalPmCost ? ` [Bônus temporários usados: ${names}; gastou ${totalPmCost} PM; restam ${char.pmCurrent} PM]` : ` [Bônus temporários usados: ${names}]`;
+        consumeTemporaryTraits(activeTemporary);
       }
-
-      if (totalPmCost > 0 && actionType !== 'init') {
-        msg += ` [Gastou ${totalPmCost} PM com ${activeNames.join(', ')}. Restam ${char.pmCurrent} PM]`;
-      }
-      if (actionType !== 'init') char.traits.forEach(t => { if (t.mode === 'toggle' && t.active && t.oneShot) { t.active = false; t.oneShot = false; } });
-
-      if (isCrit && actionType !== 'init') soundCrit();
-      else soundRoll();
-
-      addRollToLog(msg);
-      renderCharacter();
-      announce(msg);
+      consumeGlobalRollModifier();
+      if (isCrit && actionType !== 'init') soundCrit(); else soundRoll();
+      addRollToLog(msg); renderCharacter(); announce(msg);
     }
 
     function rollStatTest(statKey) {
       const char = getActiveChar();
-      const eff = getEffectiveStats(char);
+      const activeTemporary = applicableTemporaryTraits(char, `stat:${statKey}`);
+      const totalPmCost = temporaryCost(activeTemporary);
       const tempMod = parseInt(document.getElementById('temp-mod').value, 10) || 0;
+      if (char.pmCurrent < totalPmCost) {
+        playTone(180, 'sawtooth', 0.2);
+        announce(`PM insuficiente para o bônus ${activeTemporary.map(t => t.name).join(', ')}. Custo: ${totalPmCost} PM; disponíveis: ${char.pmCurrent} PM.`, true);
+        return;
+      }
+      const eff = getEffectiveStats(char);
+      if (totalPmCost > 0) char.pmCurrent -= totalPmCost;
       const target = Math.max(0, eff[statKey] + tempMod);
       const d6 = Math.floor(Math.random() * 6) + 1;
-
-      let success = false;
-      let detail = '';
-      if (d6 === 6) {
-        success = false;
-        detail = 'FALHA CRÍTICA AUTOMÁTICA (tirou 6)!';
-        soundFumble();
-      } else if (d6 === 1 && target >= 1) {
-        success = true;
-        detail = 'SUCESSO AUTOMÁTICO (tirou 1)!';
-        soundCrit();
-      } else {
-        success = d6 <= target;
-        detail = success ? 'SUCESSO!' : 'FALHA!';
-        if (success) soundRoll(); else soundFumble();
-      }
-
-      const msg = `Teste de ${statKey} (Alvo <= ${target}): Dado caiu ${d6}. ${detail}`;
-      addRollToLog(msg);
-      announce(msg);
+      let success = false; let detail = '';
+      if (d6 === 6) { detail = 'FALHA CRÍTICA AUTOMÁTICA (tirou 6)!'; soundFumble(); }
+      else if (d6 === 1 && target >= 1) { success = true; detail = 'SUCESSO AUTOMÁTICO (tirou 1)!'; soundCrit(); }
+      else { success = d6 <= target; detail = success ? 'SUCESSO!' : 'FALHA!'; if (success) soundRoll(); else soundFumble(); }
+      const names = activeTemporary.map(t => t.name).join(', ');
+      const costNote = activeTemporary.length ? ` Bônus temporários usados: ${names}${totalPmCost ? `; gastou ${totalPmCost} PM, restam ${char.pmCurrent} PM.` : '.'}` : '';
+      const msg = `Teste de ${statKey} (Alvo <= ${target}): Dado caiu ${d6}. ${detail}${costNote}`;
+      consumeTemporaryTraits(activeTemporary); consumeGlobalRollModifier();
+      addRollToLog(msg); renderCharacter(); announce(msg);
     }
 
     function rollGeneric(label, count, sides) {
@@ -604,32 +605,28 @@ const STORAGE_KEY = 'ficha_3det_alpha_v2';
     // --- VANTAGENS E DESVANTAGENS ---
     function addTrait() {
       const name = document.getElementById('trait-name').value.trim();
-      if (!name) {
-        announce('Digite o nome da vantagem ou desvantagem.');
-        document.getElementById('trait-name').focus();
-        return;
-      }
+      if (!name) { announce('Digite o nome da vantagem ou desvantagem.'); document.getElementById('trait-name').focus(); return; }
+      const mode = document.getElementById('trait-mode').value;
+      const target = document.getElementById('trait-target').value;
+      const modifier = parseInt(document.getElementById('trait-mod').value, 10) || 0;
+      const pmCost = Math.max(0, parseInt(document.getElementById('trait-pm').value, 10) || 0);
+      if (mode !== 'none' && target === 'none') { announce('Escolha o atributo afetado para um bônus numérico.'); document.getElementById('trait-target').focus(); return; }
+      if (mode === 'temporary' && ['PV_MAX', 'PM_MAX'].includes(target)) { announce('Bônus diretos de PV/PM máximo devem ser permanentes; bônus temporários são para rolagens.'); document.getElementById('trait-mode').focus(); return; }
+      if (mode === 'permanent' && pmCost > 0) { announce('Bônus permanentes não gastam PM. Para cobrar PM, escolha o modo temporário.'); document.getElementById('trait-pm').focus(); return; }
       const char = getActiveChar();
       const newTrait = {
-        id: 't_' + Date.now(),
-        name: name,
-        category: document.getElementById('trait-category').value,
+        id: 't_' + Date.now() + '_' + Math.floor(Math.random() * 1000),
+        name, category: document.getElementById('trait-category').value,
         cost: parseInt(document.getElementById('trait-cost').value, 10) || 0,
-        mode: document.getElementById('trait-mode').value,
-        target: document.getElementById('trait-target').value,
-        mod: parseInt(document.getElementById('trait-mod').value, 10) || 0,
-        pmCost: parseInt(document.getElementById('trait-pm').value, 10) || 0,
-        active: false,
-        desc: document.getElementById('trait-desc').value.trim()
+        mode, target, mod: modifier, pmCost: mode === 'temporary' ? pmCost : 0,
+        active: false, desc: document.getElementById('trait-desc').value.trim()
       };
       char.traits.push(newTrait);
       document.getElementById('trait-name').value = '';
       document.getElementById('trait-desc').value = '';
       document.getElementById('trait-mod').value = '0';
       document.getElementById('trait-pm').value = '0';
-      saveState();
-      renderCharacter();
-      announce(`${newTrait.category} ${newTrait.name} adicionada à ficha.`);
+      saveState(); renderCharacter(); announce(`${newTrait.category} ${newTrait.name} adicionada à ficha.`);
     }
 
     function removeTrait(id) {
@@ -644,7 +641,7 @@ const STORAGE_KEY = 'ficha_3det_alpha_v2';
     }
 
     function targetLabel(target) {
-      return ({ FA: 'Força de Ataque', FD: 'Força de Defesa', COMBAT: 'Ataque e Defesa', PV_MAX: 'PV máximo', PM_MAX: 'PM máximo', INIT: 'Iniciativa' })[target] || target;
+      return ({ FA: 'Força de Ataque', FD: 'Força de Defesa', COMBAT: 'Ataque e Defesa', F: 'Força', H: 'Habilidade', R: 'Resistência', A: 'Armadura', PdF: 'Poder de Fogo', PV_MAX: 'PV máximo', PM_MAX: 'PM máximo', INIT: 'Iniciativa' })[target] || target;
     }
 
     function renderTraitsList(char) {
@@ -661,7 +658,7 @@ const STORAGE_KEY = 'ficha_3det_alpha_v2';
         row.className = 'flex-row';
         row.style.justifyContent = 'space-between';
         const effectBadge = t.mode !== 'none' && t.target !== 'none'
-          ? ` | Efeito (${t.mode === 'passive' ? 'Passivo' : 'Ativável'}): ${targetLabel(t.target)} ${t.mod >= 0 ? '+' + t.mod : t.mod}${t.pmCost ? ' (' + t.pmCost + ' PM)' : ''}`
+          ? ` | Efeito (${t.mode === 'permanent' ? 'Permanente' : 'Temporário, próxima rolagem compatível'}): ${targetLabel(t.target)} ${t.mod >= 0 ? '+' + t.mod : t.mod}${t.mode === 'temporary' && t.pmCost ? ' (' + t.pmCost + ' PM uma vez)' : ''}`
           : '';
         const strong = document.createElement('strong');
         strong.textContent = `${t.name} (${t.category} | ${t.cost} pts${effectBadge})`;
@@ -828,6 +825,7 @@ const STORAGE_KEY = 'ficha_3det_alpha_v2';
     }
 
     function switchCharacter(charId) {
+      document.getElementById('temp-mod').value = '0';
       appState.activeCharId = charId;
       saveState();
       renderCharacter();
@@ -839,6 +837,7 @@ const STORAGE_KEY = 'ficha_3det_alpha_v2';
       if (!name) return;
       const newChar = createDefaultCharacter(name.trim());
       appState.characters.push(newChar);
+      document.getElementById('temp-mod').value = '0';
       appState.activeCharId = newChar.id;
       saveState();
       populateCharSelect();
@@ -854,6 +853,7 @@ const STORAGE_KEY = 'ficha_3det_alpha_v2';
       const char = getActiveChar();
       if (confirm(`Tem certeza que deseja excluir permanentemente a ficha de ${char.name}?`)) {
         appState.characters = appState.characters.filter(c => c.id !== char.id);
+        document.getElementById('temp-mod').value = '0';
         appState.activeCharId = appState.characters[0].id;
         saveState();
         populateCharSelect();
@@ -906,6 +906,7 @@ const STORAGE_KEY = 'ficha_3det_alpha_v2';
           const normalized = normalizeState(imported);
           if (normalized) {
             appState = normalized;
+            document.getElementById('temp-mod').value = '0';
             saveState(); populateCharSelect(); applySavedAccordions(); renderCharacter();
             announce('Fichas importadas. Confira os itens migrados e suas regras.');
           } else announce('Arquivo JSON inválido ou sem personagens.', true);
