@@ -1,23 +1,25 @@
 # Ficha acessível 3D&T Alpha
 
-Ficha de personagem em HTML, CSS e JavaScript puros, sem dependências de servidor. Compatível com publicação no GitHub Pages.
+Ficha de fã para 3D&T Alpha, publicada como página estática no GitHub Pages.
 
 ## Recursos
 
-- Vários personagens salvos localmente no navegador.
-- PV e PM com limite baseado em Resistência × 5.
-- Rolagens de combate, testes de característica e dados livres, com histórico das dez últimas rolagens.
-- Efeitos configuráveis com custo de PM e modificador para a próxima rolagem de combate.
-- Características, vantagens, desvantagens, perícias, equipamentos, ataques e anotações.
-- Importação/exportação de JSON e cópia de resumo em texto.
-- Interface responsiva, operação por teclado, rótulos associados e avisos acessíveis.
+- Vários personagens com salvamento local no navegador.
+- PV e PM calculados a partir dos atributos efetivos, incluindo vantagens passivas e bônus diretos de PV/PM.
+- Rolagens de ataque corpo a corpo, ataque à distância, defesa, iniciativa, testes de característica e dados livres.
+- Acertos críticos, falhas críticas e sucessos automáticos nos testes conforme a implementação da ficha anexada.
+- Vantagens, desvantagens e vantagem única com efeitos passivos ou ativáveis, alvos configuráveis e custo de PM.
+- Perícias, magias e técnicas com custo em pontos/PM e ação de uso.
+- Inventário, dinheiro, história, modo de leitura da biografia, notas rápidas e diário de sessões.
+- Histórico das últimas rolagens, resumo copiável, backup e restauração por JSON.
+- Interface responsiva, operação por teclado, rótulos de campos, avisos acessíveis e foco visível.
 
-## Publicar no GitHub Pages
+## Dados e migração
 
-Nas configurações do repositório, abra **Pages**, escolha **Deploy from a branch**, selecione `main` e a pasta `/ (root)`, e salve. O site será servido a partir do `index.html`.
+As fichas ficam no armazenamento local do navegador. Ao iniciar, a página migra os dados da versão anterior do repositório (`ficha-3dt-alpha-v1`) para o formato desta versão. Também aceita importar backups JSON das duas versões. Efeitos genéricos antigos são migrados como modificadores temporários de ataque/defesa e se desativam após uma rolagem; confira o alvo e os custos depois da migração. Faça um backup JSON antes de limpar os dados do navegador.
 
 ## Regras
 
-As rolagens seguem as fórmulas indicadas na interface. O resumo de pontos é uma estimativa editável: soma características e vantagens e subtrai os pontos concedidos por desvantagens. O custo e os efeitos das opções podem depender da mesa; confirme-os com o material de referência usado no jogo. PV e PM máximos usam Resistência final (base + bônus passivo) × 5.
+Os cálculos automatizam as opções registradas na ficha; custos e interpretações podem variar por mesa. PV e PM, efeitos e testes devem ser conferidos com o material de referência utilizado na campanha.
 
 Esta é uma ferramenta de fã, sem vínculo oficial com os titulares de 3D&T.
